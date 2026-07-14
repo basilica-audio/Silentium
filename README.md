@@ -12,7 +12,7 @@
 
 Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp hiss/hum in the silence between palm-muted chugs: it detects transients on a sidechain-filtered copy of the input (so hum/rumble can't falsely hold it open), opens fast with a lookahead head start so it never clips the leading edge of a pick attack, and uses two separate open/close thresholds so a signal hovering near the threshold can't chatter the gate open and closed.
 
-## Features (v0.1 scope)
+## Features (v0.1.0 scope)
 
 - **Threshold** - open threshold on the (sidechain-filtered) envelope, -80 dB to 0 dB (default -40 dB)
 - **Hysteresis** - the gate's close threshold sits a fixed 3 dB below Threshold, so it can never chatter on a signal hovering near one value
@@ -22,6 +22,10 @@ Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp
 - **Range** - floor attenuation applied while closed, -80 dB to 0 dB (default -60 dB); 0 dB means the gate never attenuates at all
 - **Lookahead** - delays the main signal 0 - 20 ms (default 5 ms) so the gate can start opening just before a transient arrives; reported to the host as this plugin's total latency
 - **SC HPF** - sidechain-only high-pass, 20 - 500 Hz (default 80 Hz), keeps hum/rumble from falsely holding the gate open; never applied to the main signal
+- **Knee** - soft-knee width around Threshold, 0 - 24 dB (default 0 dB); 0 dB is the classic hard-knee snap, wider values blend the gain smoothly across the band
+- **Duck** - inverts the gain computer into a ducker (attenuate above Threshold instead of opening above it), off by default
+- **Listen** - routes the sidechain-filtered detection signal to the output for auditioning what the gate hears, off by default
+- **External sidechain input** - an optional second input bus (disabled by default) lets the detection path be keyed from another track instead of the main input
 - Full state save/recall via `AudioProcessorValueTreeState`
 
 ## Signal flow
@@ -29,23 +33,24 @@ Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp
 ```
                     +-- SC HPF (20-500 Hz) --> stereo-linked max|.| --> peak envelope follower --+
                     |                                                                             |
-Input --> Lookahead |                                        hysteresis comparator + hold timer <-+
+Input --> Lookahead |                    hysteresis comparator + hold timer + knee blend + duck <-+
+ (or Sidechain      |                                                    |
+  bus, if enabled)  |                                        attack/release gain ramp (dB domain)
     |               |                                                    |
-    |               |                                        attack/release gain ramp (dB domain)
-    |               |                                                    |
-    +---------------+------------------------------------------------> x (gain) --> Output
+    +---------------+------------------------------------------------> x (gain), or Listen output --> Output
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the hysteresis/hold state machine and the lookahead latency-reporting strategy.
+See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, including the hysteresis/hold state machine, the knee/duck/listen additions, the external sidechain input, and the lookahead latency-reporting strategy - and [`docs/manual.md`](docs/manual.md) for the user-facing parameter reference and mixing tips.
 
 ## Roadmap
 
 | Milestone | Description | Status |
 |---|---|---|
 | M0 | Bootstrap - project skeleton, CI, docs | Done |
-| M1 | DSP core - detection path, hysteresis gain computer, lookahead + latency reporting, unit tests | Done |
-| M2 | Custom GUI | Planned |
-| M3 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
+| M1 | DSP completion - knee, duck mode, listen mode, external sidechain input, broadened test suite | Done |
+| M2 | Presets & state recall | Planned |
+| M3 | Custom GUI & accessibility | Planned |
+| M4 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
 <!-- ==END BODY== -->
 
 ## Installation
