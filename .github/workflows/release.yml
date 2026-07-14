@@ -1,0 +1,132 @@
+# release.yml — tag-triggered signed release build for Silentium.
+# Generated from the suite-wide vetted template (.scaffold/release-workflow-template.yml)
+# with the CMake target name substituted in.
+#
+# Security model:
+#   - Triggered only by tags pushed to this repo (never by fork PRs; secrets are
+#     unavailable to pull_request events from forks by GitHub design).
+#   - Signing cert lives in org-level encrypted secrets, imported into a throwaway
+#     keychain that is deleted in the job's post step.
+#   - Minimal permissions: contents:write only (to attach release assets).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    name: Signed macOS release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set CPM source cache path
+        run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+
+      - name: Cache CPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure & build (Release, universal)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build build --target Silentium_AU Silentium_VST3 Silentium_Standalone --parallel 3
+
+      - name: Import signing certificate (throwaway keychain)
+        env:
+          CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC=$RUNNER_TEMP/release.keychain-db
+          KC_PASS=$(openssl rand -hex 16)
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC"
+          security list-keychains -d user -s "$KC" login.keychain
+          echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
+
+      - name: Sign, notarize, staple, package
+        env:
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')
+          ROOT="build/Silentium_artefacts/Release"
+          mkdir -p stage/AU stage/VST3 stage/Standalone
+          cp -R "$ROOT/AU/"*.component stage/AU/
+          cp -R "$ROOT/VST3/"*.vst3 stage/VST3/
+          cp -R "$ROOT/Standalone/"*.app stage/Standalone/
+          for B in stage/AU/*.component stage/VST3/*.vst3 stage/Standalone/*.app; do
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "$B"
+            codesign --verify --strict "$B"
+          done
+          echo "$API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --norsrc --noextattr --noqtn --noacl stage notarize-me.zip
+          xcrun notarytool submit notarize-me.zip \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" \
+            --wait --timeout 30m
+          rm "$RUNNER_TEMP/AuthKey.p8"
+          for B in stage/AU/*.component stage/VST3/*.vst3 stage/Standalone/*.app; do
+            xcrun stapler staple "$B"
+          done
+          SLUG=$(basename "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          ditto -c -k --norsrc --noextattr --noqtn --noacl stage "$SLUG-$GITHUB_REF_NAME-macos.zip"
+          echo "ASSET=$SLUG-$GITHUB_REF_NAME-macos.zip" >> "$GITHUB_ENV"
+
+      - name: Delete throwaway keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN" || true
+
+      - name: Attach to release
+        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  release-windows:
+    name: Windows release (unsigned)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set CPM source cache path
+        shell: bash
+        run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
+      - name: Cache CPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/CPM
+          key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Configure & build (Release)
+        shell: bash
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --target Silentium_VST3 Silentium_Standalone --parallel 3
+      - name: Package & attach
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="build/Silentium_artefacts/Release"
+          mkdir -p stage/VST3 stage/Standalone
+          cp -R "$ROOT/VST3/"*.vst3 stage/VST3/
+          cp "$ROOT/Standalone/"*.exe stage/Standalone/
+          SLUG=$(basename "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          cd stage && 7z a "../$SLUG-$GITHUB_REF_NAME-windows.zip" . && cd ..
+          gh release upload "$GITHUB_REF_NAME" "$SLUG-$GITHUB_REF_NAME-windows.zip" --clobber -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
