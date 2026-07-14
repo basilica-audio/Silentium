@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/icon.png" alt="Silentium icon" width="160"/></p>
+
 # Silentium
 
 *Silence between the storms — a tight lookahead noise gate for palm-muted rhythm.*
