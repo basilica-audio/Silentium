@@ -58,15 +58,16 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
         static constexpr const char* allIds[] = {
             ParamIDs::threshold, ParamIDs::attack, ParamIDs::hold, ParamIDs::release,
             ParamIDs::range, ParamIDs::lookahead, ParamIDs::scHighpass,
+            ParamIDs::knee, ParamIDs::duck, ParamIDs::listen,
         };
 
         for (const auto* id : allIds)
             CHECK (apvts.getParameter (id) != nullptr);
     }
 
-    SECTION ("total parameter count matches the v0.1 layout")
+    SECTION ("total parameter count matches the v0.1.0 layout")
     {
-        CHECK (apvts.processor.getParameters().size() == 7);
+        CHECK (apvts.processor.getParameters().size() == 10);
     }
 
     SECTION ("Threshold: open threshold defaults and range")
@@ -109,5 +110,23 @@ TEST_CASE ("Processor instantiates with the expected parameters", "[processor][p
     {
         checkFloatDefault (apvts, ParamIDs::scHighpass, 80.0f);
         checkFloatRange (apvts, ParamIDs::scHighpass, 20.0f, 500.0f);
+    }
+
+    SECTION ("Knee: soft-knee width defaults and range")
+    {
+        checkFloatDefault (apvts, ParamIDs::knee, 0.0f);
+        checkFloatRange (apvts, ParamIDs::knee, 0.0f, 24.0f);
+    }
+
+    SECTION ("Duck: off by default")
+    {
+        auto* param = requireParam (apvts, ParamIDs::duck);
+        CHECK (param->getDefaultValue() == Catch::Approx (0.0f));
+    }
+
+    SECTION ("Listen: off by default")
+    {
+        auto* param = requireParam (apvts, ParamIDs::listen);
+        CHECK (param->getDefaultValue() == Catch::Approx (0.0f));
     }
 }

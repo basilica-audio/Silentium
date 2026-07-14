@@ -16,6 +16,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     auto* rangeParam = processor.apvts.getParameter (ParamIDs::range);
     auto* lookaheadParam = processor.apvts.getParameter (ParamIDs::lookahead);
     auto* scHighpassParam = processor.apvts.getParameter (ParamIDs::scHighpass);
+    auto* kneeParam = processor.apvts.getParameter (ParamIDs::knee);
+    auto* duckParam = processor.apvts.getParameter (ParamIDs::duck);
+    auto* listenParam = processor.apvts.getParameter (ParamIDs::listen);
 
     REQUIRE (thresholdParam != nullptr);
     REQUIRE (attackParam != nullptr);
@@ -24,6 +27,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     REQUIRE (rangeParam != nullptr);
     REQUIRE (lookaheadParam != nullptr);
     REQUIRE (scHighpassParam != nullptr);
+    REQUIRE (kneeParam != nullptr);
+    REQUIRE (duckParam != nullptr);
+    REQUIRE (listenParam != nullptr);
 
     thresholdParam->setValueNotifyingHost (thresholdParam->convertTo0to1 (-25.0f));
     attackParam->setValueNotifyingHost (attackParam->convertTo0to1 (5.0f));
@@ -32,6 +38,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     rangeParam->setValueNotifyingHost (rangeParam->convertTo0to1 (-45.0f));
     lookaheadParam->setValueNotifyingHost (lookaheadParam->convertTo0to1 (12.0f));
     scHighpassParam->setValueNotifyingHost (scHighpassParam->convertTo0to1 (200.0f));
+    kneeParam->setValueNotifyingHost (kneeParam->convertTo0to1 (8.0f));
+    duckParam->setValueNotifyingHost (1.0f);
+    listenParam->setValueNotifyingHost (1.0f);
 
     const auto savedThreshold = thresholdParam->getValue();
     const auto savedAttack = attackParam->getValue();
@@ -40,6 +49,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     const auto savedRange = rangeParam->getValue();
     const auto savedLookahead = lookaheadParam->getValue();
     const auto savedScHighpass = scHighpassParam->getValue();
+    const auto savedKnee = kneeParam->getValue();
+    const auto savedDuck = duckParam->getValue();
+    const auto savedListen = listenParam->getValue();
 
     juce::MemoryBlock savedState;
     processor.getStateInformation (savedState);
@@ -54,6 +66,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     rangeParam->setValueNotifyingHost (rangeParam->getDefaultValue());
     lookaheadParam->setValueNotifyingHost (lookaheadParam->getDefaultValue());
     scHighpassParam->setValueNotifyingHost (scHighpassParam->getDefaultValue());
+    kneeParam->setValueNotifyingHost (kneeParam->getDefaultValue());
+    duckParam->setValueNotifyingHost (duckParam->getDefaultValue());
+    listenParam->setValueNotifyingHost (listenParam->getDefaultValue());
 
     REQUIRE (thresholdParam->getValue() != Catch::Approx (savedThreshold));
     REQUIRE (attackParam->getValue() != Catch::Approx (savedAttack));
@@ -62,6 +77,9 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     REQUIRE (rangeParam->getValue() != Catch::Approx (savedRange));
     REQUIRE (lookaheadParam->getValue() != Catch::Approx (savedLookahead));
     REQUIRE (scHighpassParam->getValue() != Catch::Approx (savedScHighpass));
+    REQUIRE (kneeParam->getValue() != Catch::Approx (savedKnee));
+    REQUIRE (duckParam->getValue() != Catch::Approx (savedDuck));
+    REQUIRE (listenParam->getValue() != Catch::Approx (savedListen));
 
     processor.setStateInformation (savedState.getData(), static_cast<int> (savedState.getSize()));
 
@@ -72,4 +90,7 @@ TEST_CASE ("State round-trip preserves non-default values of every parameter", "
     CHECK (rangeParam->getValue() == Catch::Approx (savedRange).margin (1e-6));
     CHECK (lookaheadParam->getValue() == Catch::Approx (savedLookahead).margin (1e-6));
     CHECK (scHighpassParam->getValue() == Catch::Approx (savedScHighpass).margin (1e-6));
+    CHECK (kneeParam->getValue() == Catch::Approx (savedKnee).margin (1e-6));
+    CHECK (duckParam->getValue() == Catch::Approx (savedDuck).margin (1e-6));
+    CHECK (listenParam->getValue() == Catch::Approx (savedListen).margin (1e-6));
 }
