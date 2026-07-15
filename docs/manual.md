@@ -18,7 +18,7 @@ attack."
 
 Silentium is a **detection-and-dynamics** stage, not a tone-shaping one. Put it:
 
-- **Before** any drive/distortion/amp-sim plugin (`twist-your-guts` and friends in
+- **Before** any drive/distortion/amp-sim plugin (`crypta` and friends in
   this suite) if you want to gate the *clean* signal, which avoids gating
   artifacts being amplified/distorted along with everything else, and lets the
   gate's sidechain high-pass filter see an undistorted signal to key from.
