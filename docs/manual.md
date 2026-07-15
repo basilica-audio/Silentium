@@ -6,7 +6,7 @@
 
 ## What it is
 
-Silentium is a noise gate purpose-built for high-gain guitar in a symphonic-metal
+Silentium is a noise gate purpose-built for high-gain guitar in a heavy-music
 mix: the moment between palm-muted chugs where amp hiss, pedalboard hum, and
 buzzing strings would otherwise be audible. It is not a general-purpose dynamics
 gate borrowed from a mix bus — every default and every internal ballistic is
@@ -14,7 +14,7 @@ tuned for the specific problem of "silence a loud, distorted guitar the instant
 the player stops picking, without clipping the leading edge of the next pick
 attack."
 
-## Where it sits in a symphonic-metal chain
+## Where it sits in a heavy production chain
 
 Silentium is a **detection-and-dynamics** stage, not a tone-shaping one. Put it:
 
@@ -29,7 +29,7 @@ Silentium is a **detection-and-dynamics** stage, not a tone-shaping one. Put it:
   closes on the dry guitar and the tail of a reverb/delay doesn't get chopped
   off mid-decay. If you need a gated reverb tail specifically, that is a
   deliberate, different use of a gate than this one.
-- In a **layered rhythm-guitar mix** — a symphonic-metal wall-of-guitars — put
+- In a **layered rhythm-guitar mix** — a heavy-music wall-of-guitars — put
   one instance per DI/amp-sim track rather than gating the whole bus: each
   performance has its own pick-attack timing, and per-track lookahead keeps
   every layer's attacks tight and simultaneous.
