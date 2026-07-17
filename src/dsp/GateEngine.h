@@ -155,6 +155,13 @@ public:
     // test) and a future GUI gate-open indicator.
     bool isGateOpen() const noexcept { return gateOpen; }
 
+    // The gain currently applied to the main path, in dB: 0 dB fully open,
+    // ramping down towards Range while closed/closing. Cheap,
+    // side-effect-free query for the M3 GUI's gain-reduction meter - read
+    // on the audio thread right after process() and published to the GUI
+    // via an atomic (see SilentiumAudioProcessor::getGainReductionDb()).
+    float getCurrentGainDb() const noexcept { return currentGainDb; }
+
 private:
     // Butterworth (maximally-flat) Q for the sidechain HPF.
     static constexpr float filterQ = juce::MathConstants<float>::sqrt2 / 2.0f;

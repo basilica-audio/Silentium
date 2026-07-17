@@ -60,8 +60,26 @@ public:
     // itself already uses.
     basilica::presets::PresetManager presetManager;
 
+    // M3 GUI metering (src/gui/AnalogMeter.h): instantaneous values written
+    // once per processBlock() with plain relaxed atomic stores (no locks/
+    // allocation on the audio thread) and polled from the editor's timer.
+    // Ballistic smoothing happens entirely on the GUI side (AnalogMeter),
+    // never here.
+    //
+    // Gain reduction: the gate's currently applied gain in dB (0 = fully
+    // open, negative = attenuating towards Range).
+    float getGainReductionDb() const noexcept { return meterGainReductionDb.load (std::memory_order_relaxed); }
+
+    // Input level: the current block's peak level in dBFS, measured on the
+    // main input before the gate is applied (floored at -100 dB for silent/
+    // empty blocks).
+    float getInputLevelDb() const noexcept { return meterInputLevelDb.load (std::memory_order_relaxed); }
+
 private:
     GateEngine engine;
+
+    std::atomic<float> meterGainReductionDb { 0.0f };
+    std::atomic<float> meterInputLevelDb { -100.0f };
 
     // Raw atomic pointers into the APVTS-managed parameter values, resolved
     // once at construction time so processBlock() never has to search for

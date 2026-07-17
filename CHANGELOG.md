@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-17
+
+### Added
+
+- **Photoreal skeuomorphic GUI (M3 pilot)** - the suite's first full custom editor, replacing the v0.1 functional slider/toggle layout. Built from pre-rendered Blender assets (the suite's gui-pipeline renders, copied into `resources/gui/` and embedded via BinaryData so the repo stays self-contained): a stone/gunmetal faceplate with engraved section bays, brass filmstrip knobs (128 frames, -135°..+135°), brass lever toggles with hover states, and two glass-covered analog needle VU meters (Gain Reduction + Input Level) with spring ballistics (~300 ms integration) driven by new lock-free metering atomics on the processor. See `docs/gui-preview.png` for the rendered result and `docs/gui-components.md` for the component architecture.
+- **Suite-reusable GUI component family** (`src/gui/`): `FilmstripKnob` (filmstrip-backed `juce::Slider`, Shift = fine drag, double-click resets to the parameter default, mouse-wheel support), `FilmstripToggle` (4-frame `juce::Button`), `AnalogMeter` (face + vectorially rotated needle + glass overlay, unit-testable ballistics/tick-angle math), `BasilicaLookAndFeel` (gold serif labels with an engraved dual-shadow look - the interim JUCE-drawn label solution until per-control text is baked into the faceplate art), and `ImageDensity.h` (@1x/@2x asset tier selection). All Silentium-agnostic; the plugin-specific layout lives in a single coordinate table in `PluginEditor.cpp`.
+- **Stepped window scaling** (100/150/200%, via a control next to the preset bar) - no free resize, because the artwork is pre-rendered at fixed density tiers. The chosen step persists in the plugin state (a plain `uiScaleStep` property on the APVTS tree) and round-trips through host session save/reload.
+- **Accessibility**: all controls derive from stock `juce::Slider`/`juce::Button`, so JUCE's accessibility handlers, keyboard operation, and host parameter attachments work unchanged; accessible titles are set from parameter names, meters expose a label role, and creation order matches the visual reading order for focus traversal.
+- Six new GUI test cases (76 total, up from 70): filmstrip frame-math edges, toggle frame-table mapping, meter ballistics step response and monotonic approach, tick-angle interpolation, editor construct/destroy, and an offscreen editor snapshot (written to `build/gui-preview.png`, committed as `docs/gui-preview.png`) verified non-blank.
+
+### Changed
+
+- `GateEngine` exposes `getCurrentGainDb()` (the gain currently applied to the main path) for the gain-reduction meter; `processBlock()` publishes it plus the pre-gate input peak level via relaxed atomics. No DSP behaviour change - all 70 pre-existing tests are unchanged and green.
+- CMake project version bumped to 0.3.0.
+
 ## [0.2.0] - 2026-07-16
 
 ### Added

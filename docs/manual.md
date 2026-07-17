@@ -112,6 +112,17 @@ class this describes).
 | **Duck** | off/on | off | — | Inverts the gain computer: instead of opening above Threshold, the output attenuates toward Range above Threshold. Same detection path (SC HPF, SC LPF, hysteresis, Hold, Knee, Lookahead) — useful for ducking a rhythm guitar under a lead, or combined with an external sidechain for a kick-triggered ducking effect. |
 | **Listen** | off/on | off | — | Routes the sidechain-filtered detection signal directly to the output, bypassing the gain computer entirely. Use this while dialling in SC HPF/SC LPF and Threshold to hear exactly what the detector is reacting to, then turn it back off. |
 
+### Duck mode (ducking instead of gating)
+
+Enable **Duck** to invert the gain computer: instead of opening above Threshold,
+the output attenuates toward Range above Threshold, turning the same engine
+into a ducker. The detection path is unchanged (SC HPF, SC LPF, hysteresis,
+Hold, Knee, Lookahead all still apply), so every tool you'd use to shape a
+gate's response shapes the ducking response the same way. Typical uses: duck
+a rhythm-guitar layer under a lead part, or combine Duck with an
+[external sidechain input](#external-sidechain-input) for a kick- or
+click-triggered rhythmic ducking effect.
+
 ### How the ramp actually behaves (v0.2.0)
 
 Attack/Release still mean "time for a full-scale transition" (Range floor to

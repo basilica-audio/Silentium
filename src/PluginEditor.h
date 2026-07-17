@@ -2,63 +2,96 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <array>
+
+#include "gui/AnalogMeter.h"
+#include "gui/BasilicaLookAndFeel.h"
+#include "gui/FilmstripKnob.h"
+#include "gui/FilmstripToggle.h"
 #include "presets/PresetBar.h"
 
 class SilentiumAudioProcessor;
 
-// A simple, functional v0.1 editor: one rotary slider per parameter, bound
-// to the APVTS via SliderAttachment. A custom vector-drawn GUI is a later
-// milestone; this is deliberately plain but fully wired and usable.
-class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor
+// M3 GUI pilot: the suite's first photoreal skeuomorphic editor, built from
+// the reusable src/gui/ component family (FilmstripKnob, FilmstripToggle,
+// AnalogMeter, BasilicaLookAndFeel) plus the pre-rendered faceplate PNG (see
+// .scaffold/gui-assets/faceplate-silentium-v1/README.md). Every visible
+// control is wired to a real APVTS parameter or a real metering value - no
+// dead decoration, per the basilica-gui-design skill's binding spec.
+//
+// Layout: a single "knobLayout" table (see PluginEditor.cpp) positions every
+// FilmstripKnob AND its juce::Label caption from the SAME base-resolution
+// coordinates the faceplate's engraved control-bay grid was authored
+// against, so a later pass that bakes real per-control text into the
+// faceplate art (see BasilicaLookAndFeel.h's docs) only needs to hide/remove
+// the juce::Label instances - no control moves.
+//
+// Window scaling is STEPPED (100/150/200%, a UA-style corner control next to
+// the preset bar, persisted as a plain property on the APVTS state tree -
+// not a free/continuous resize, because the backing art is pre-rendered at
+// fixed density tiers (see src/gui/ImageDensity.h).
+class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                             private juce::Timer
 {
 public:
     explicit SilentiumAudioProcessorEditor (SilentiumAudioProcessor& processorToEdit);
     ~SilentiumAudioProcessorEditor() override;
 
+    void paint (juce::Graphics& g) override;
     void resized() override;
 
 private:
+    // Re-reads the processor's metering atomics and feeds AnalogMeter -
+    // driven by this editor's own juce::Timer (same pattern PresetBar
+    // already uses) so the audio thread never touches GUI components
+    // directly (see PluginProcessor::getGainReductionDb()/getInputLevelDb()).
+    // AnalogMeter's own internal timer then does the actual ~300ms
+    // ballistic integration independently of this refresh rate.
+    void timerCallback() override;
+
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // One knob + label per float parameter, in signal-flow order.
     struct Knob
     {
-        juce::Slider slider;
+        std::unique_ptr<basilica::gui::FilmstripKnob> slider;
         juce::Label label;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
-    // One toggle button per bool parameter (Duck, Listen).
     struct Toggle
     {
-        juce::ToggleButton button;
+        std::unique_ptr<basilica::gui::FilmstripToggle> button;
+        juce::Label label;
         std::unique_ptr<ButtonAttachment> attachment;
     };
 
     void configureKnob (Knob& knob, const juce::String& parameterId, const juce::String& labelText);
     void configureToggle (Toggle& toggle, const juce::String& parameterId, const juce::String& labelText);
+    void applyScaleStep (int newStepIndex);
+    void cycleScale();
 
     SilentiumAudioProcessor& audioProcessor;
 
-    // M2 preset system (src/presets/PresetBar.h) - a horizontal strip
-    // docked at the top of the editor. Constructed after the localisation
-    // frame is installed (see the constructor) so its TRANS()'d strings
-    // (and any of its own dialogs opened later) pick up the right language
-    // from the very first paint.
+    basilica::gui::BasilicaLookAndFeel lookAndFeel;
+
+    juce::Image facePlateImage1x, facePlateImage2x;
+    juce::Image brandIconImage;
+
     basilica::presets::PresetBar presetBar;
+    juce::TextButton scaleButton;
+    int scaleStepIndex = 0; // 0 = 100%, 1 = 150%, 2 = 200%
 
-    Knob thresholdKnob;
-    Knob attackKnob;
-    Knob holdKnob;
-    Knob releaseKnob;
-    Knob rangeKnob;
-    Knob lookaheadKnob;
-    Knob scHighpassKnob;
-    Knob kneeKnob;
+    basilica::gui::AnalogMeter gainReductionMeter;
+    basilica::gui::AnalogMeter inputLevelMeter;
 
-    Toggle duckToggle;
-    Toggle listenToggle;
+    static constexpr int numKnobs = 9;
+    std::array<Knob, numKnobs> knobs;
+
+    static constexpr int numToggles = 2;
+    std::array<Toggle, numToggles> toggles;
+
+    juce::Label titleLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessorEditor)
 };
