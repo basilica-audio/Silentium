@@ -143,11 +143,44 @@ namespace basilica::gui
             g.drawImage (glass, bounds);
     }
 
+    // A-07 fix (M3 a11y review): a read-only text value interface exposing
+    // the current ballistic-smoothed reading, mirroring the shape of JUCE's
+    // own ButtonValueInterface pattern (juce_ButtonAccessibilityHandler.h).
+    // Reads the SAME smoothedDb the paint() method just drew, updated at
+    // this component's own 30 Hz timer - queried on demand by AT clients,
+    // never pushed/announced proactively.
+    class AnalogMeter::MeterValueInterface final : public juce::AccessibilityTextValueInterface
+    {
+    public:
+        explicit MeterValueInterface (const AnalogMeter& ownerIn) noexcept : owner (ownerIn) {}
+
+        bool isReadOnly() const override { return true; }
+
+        juce::String getCurrentValueAsString() const override
+        {
+            return juce::String (owner.smoothedDb, 1) + " dB";
+        }
+
+        // Read-only: assistive-technology clients cannot set a meter
+        // reading, so this is intentionally a no-op rather than throwing or
+        // asserting - matches isReadOnly() == true's documented contract.
+        void setValueAsString (const juce::String&) override {}
+
+    private:
+        const AnalogMeter& owner;
+    };
+
     std::unique_ptr<juce::AccessibilityHandler> AnalogMeter::createAccessibilityHandler()
     {
         // Read-only display, not an interactive control - AccessibilityRole::
         // label (rather than Component's default ::unspecified) is the
-        // closer semantic match for a screen reader.
-        return std::make_unique<juce::AccessibilityHandler> (*this, juce::AccessibilityRole::label);
+        // closer semantic match for a screen reader. The value interface
+        // (A-07 fix) lets AT clients query the current reading on demand
+        // without this component ever pushing unsolicited announcements.
+        return std::make_unique<juce::AccessibilityHandler> (
+            *this,
+            juce::AccessibilityRole::label,
+            juce::AccessibilityActions {},
+            juce::AccessibilityHandler::Interfaces { std::make_unique<MeterValueInterface> (*this) });
     }
 }

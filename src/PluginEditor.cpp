@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "PluginEditorLayout.h"
 #include "PluginProcessor.h"
 #include "gui/ImageDensity.h"
 #include "params/ParameterIds.h"
@@ -8,58 +9,11 @@
 
 namespace
 {
-    //==========================================================================
-    // Base (@1x, 100% scale) faceplate geometry.
-    //
-    // Derived from .scaffold/gui-assets/render_faceplate.py's actual Blender
-    // scene coordinates (world units -> pixels via that script's own ortho
-    // camera: ortho_scale=3.3 maps to the 900px-wide @1x render, giving
-    // world x range [-1.65, 1.65] -> 900px and world y range [-1.1, 1.1] ->
-    // 600px, image row 0 = max world y), then cross-checked visually against
-    // faceplate_silentium_preview.png (header band near the top, two meter
-    // rects side by side below it, one wide control rect in the middle,
-    // a thin aux strip near the bottom - all confirmed present at
-    // approximately these proportions). This is the SAME table both the
-    // controls and their interim juce::Label captions are positioned from -
-    // see PluginEditor.h's class docs.
-    constexpr int plateWidth1x = 900;
-    constexpr int plateHeight1x = 600;
-
-    // juce::Rectangle/Point's constructors are not constexpr (JUCE 8.0.14),
-    // so these are plain namespace-scope consts rather than true constexpr -
-    // still zero-initialisation-order risk since they only depend on
-    // integer literals.
-    const juce::Rectangle<int> headerBay1x { 109, 46, 682, 71 };
-    const juce::Point<int> roundelCentre1x { 450, 82 };
-    constexpr int roundelRadius1x = 35;
-
-    const juce::Rectangle<int> meterLBay1x { 145, 128, 286, 158 };
-    const juce::Rectangle<int> meterRBay1x { 469, 128, 286, 158 };
-
-    const juce::Rectangle<int> controlBay1x { 82, 265, 736, 234 };
-    const juce::Rectangle<int> auxBay1x { 109, 507, 682, 44 };
-
-    // Extra strip above the plate art for the preset bar + scale control -
-    // interactive text/menus don't fit the plate's own thin engraved aux
-    // strip at any legible size, so they live in their own band instead (the
-    // plate's aux bay is used purely for the Duck/Listen toggles).
-    constexpr int topStripHeight1x = 32;
-    constexpr int topStripGap1x = 6;
-    constexpr int scaleButtonWidth1x = 64;
-
-    constexpr int baseEditorWidth = plateWidth1x;
-    constexpr int baseEditorHeight = topStripHeight1x + topStripGap1x + plateHeight1x;
-
-    constexpr std::array<float, 3> scaleSteps { 1.0f, 1.5f, 2.0f };
-
-    // Control-bay knob grid: 5 columns x 2 rows (9 knobs used, row 2's 5th
-    // cell left empty) - the control bay is wide and shallow (736x234, see
-    // above), so a 5-wide grid keeps each knob close to its original v0.1/
-    // v0.2 ~100px visual size instead of a cramped 3x3 grid.
-    constexpr int gridCols = 5;
-    constexpr int gridRows = 2;
-    constexpr int knobLabelHeight1x = 16;
-    constexpr int knobDiameter1x = 90;
+    // Base (@1x, 100% scale) faceplate geometry lives in PluginEditorLayout.h
+    // (slnt::layout) rather than here, so tests/gui/EditorLayoutTests.cpp can
+    // assert layout invariants against the exact constants this file lays
+    // components out with - see that header's docs.
+    using namespace slnt::layout;
 
     struct KnobLayoutEntry
     {
@@ -171,8 +125,14 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
 
     addAndMakeVisible (presetBar);
 
-    scaleButton.setButtonText ("100%");
-    scaleButton.setTitle ("Window scale");
+    // A-05 fix (M3 a11y review): button text/title are set from
+    // applyScaleStep() below, which runs once here at construction (with
+    // the stored/default step) and again on every subsequent click, so the
+    // accessible name always reflects the CURRENT scale instead of a static
+    // "Window scale" that never updates (see applyScaleStep()'s docs).
+    // componentID is set purely so tests/gui/EditorAccessibilityTests.cpp
+    // can find this button without depending on its (now dynamic) title.
+    scaleButton.setComponentID ("scaleButton");
     scaleButton.onClick = [this] { cycleScale(); };
     addAndMakeVisible (scaleButton);
 
@@ -230,7 +190,35 @@ void SilentiumAudioProcessorEditor::configureKnob (Knob& knob, const juce::Strin
     knob.label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (knob.label);
 
+    // SliderAttachment MUST be constructed before the textFromValueFunction
+    // override below, not after: JUCE 8.0.14's SliderParameterAttachment
+    // constructor (juce_ParameterAttachments.cpp:128) itself assigns
+    // `slider.textFromValueFunction = [&param] (double v) { return
+    // param.getText (...); }` (no unit) as part of wiring the attachment -
+    // setting our own function BEFORE this point would be silently
+    // clobbered the moment the attachment is created.
     knob.attachment = std::make_unique<SliderAttachment> (audioProcessor.apvts, parameterId, *knob.slider);
+
+    if (auto* param = audioProcessor.apvts.getParameter (parameterId))
+    {
+        // A-02 fix (M3 a11y review): every parameter declares its unit via
+        // .withLabel() in ParameterLayout.cpp (dB/ms/Hz), but that metadata
+        // was never read by the GUI layer - SliderAttachment's own
+        // textFromValueFunction (see above) formats the value but drops the
+        // unit entirely. This feeds BOTH the popup value display
+        // (setPopupDisplayEnabled above) and the accessibility value string
+        // (juce_Slider.cpp:1811's
+        // SliderAccessibilityHandler::ValueInterface::getCurrentValueAsString()
+        // calls Slider::getTextFromValue(), which calls this same function),
+        // so one fix here covers both surfaces. Still uses the parameter's
+        // own getText() (not just a raw suffix) so the reported precision/
+        // rounding matches what the host itself would display.
+        knob.slider->textFromValueFunction = [param] (double v)
+        {
+            return param->getText (param->convertTo0to1 ((float) v), 0) + " " + param->getLabel();
+        };
+        knob.slider->updateText();
+    }
 }
 
 void SilentiumAudioProcessorEditor::configureToggle (Toggle& toggle, const juce::String& parameterId, const juce::String& labelText)
@@ -257,7 +245,18 @@ void SilentiumAudioProcessorEditor::applyScaleStep (int newStepIndex)
     scaleStepIndex = juce::jlimit (0, (int) scaleSteps.size() - 1, newStepIndex);
     audioProcessor.apvts.state.setProperty (uiScaleStepProperty, scaleStepIndex, nullptr);
 
-    scaleButton.setButtonText (juce::String ((int) (scaleSteps[(size_t) scaleStepIndex] * 100.0f)) + "%");
+    const auto percentText = juce::String ((int) (scaleSteps[(size_t) scaleStepIndex] * 100.0f)) + "%";
+    scaleButton.setButtonText (percentText);
+
+    // A-05 fix (M3 a11y review): an explicitly-set AccessibilityHandler
+    // title always wins over the button's own text for screen readers
+    // (JUCE 8.0.14 juce_ButtonAccessibilityHandler.h:67-75), so a title set
+    // once at construction and never updated would silently strand AT users
+    // on "Window scale" forever, with no way to learn the plugin is now at
+    // 150%/200%. Re-setting the title here, alongside the visible text, on
+    // every step change (construction included, since this runs from the
+    // constructor too) keeps both surfaces in sync.
+    scaleButton.setTitle ("Window scale, " + percentText);
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
     setSize ((int) std::lround ((float) baseEditorWidth * scale),

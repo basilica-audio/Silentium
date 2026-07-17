@@ -28,7 +28,38 @@ namespace basilica::gui
         juce::Font getLabelFont (juce::Label& label) override;
         void drawLabel (juce::Graphics& g, juce::Label& label) override;
 
+        // A-03 fix (M3 a11y review): the exact colour pair drawLabel() paints
+        // the caption text over its opaque backing chip with, exposed so
+        // tests/gui/BasilicaLookAndFeelContrastTests.cpp can compute the real
+        // WCAG 1.4.3 contrast ratio against the SAME colours actually
+        // rendered, rather than a second hand-copied pair that could
+        // silently drift out of sync.
+        static juce::Colour getLabelTextColour() noexcept;
+        static juce::Colour getLabelBackingChipColour() noexcept;
+
     private:
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BasilicaLookAndFeel)
     };
+
+    // A-01 fix (M3 a11y review, WCAG 2.4.7 Focus Visible): shared keyboard-
+    // focus indicator for the suite's filmstrip-rendered controls.
+    // FilmstripKnob::paint() and FilmstripToggle::paintButton() both fully
+    // override their base class's own paint path (see each header's docs),
+    // so neither ever reaches LookAndFeel_V4::drawRotarySlider/
+    // drawButtonBackground's own focus handling (JUCE 8.0.14) - this free
+    // function is the shared replacement, called directly at the end of each
+    // component's own paint() once `hasKeyboardFocus (true)` is true, so the
+    // fix lives in one place and is inherited by every sibling plugin that
+    // copies this component family rather than being re-discovered per
+    // plugin.
+    //
+    // `shape` selects an elliptical ring for round controls (FilmstripKnob)
+    // or a rounded-rectangle ring for rectangular ones (FilmstripToggle).
+    enum class FocusRingShape
+    {
+        ellipse,
+        roundedRectangle
+    };
+
+    void paintFocusRing (juce::Graphics& g, juce::Rectangle<float> bounds, FocusRingShape shape);
 }

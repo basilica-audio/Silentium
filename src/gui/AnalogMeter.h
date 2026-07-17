@@ -64,6 +64,16 @@ namespace basilica::gui
         static constexpr float contentFractionOfCanvas = 0.5f;
 
     private:
+        // A-07 fix (M3 a11y review): read-only accessibility value
+        // interface, so AT users can query the current ballistic-smoothed
+        // reading on demand (VoiceOver's "read value" gesture / NVDA's
+        // report-value key) - see the .cpp for the implementation and
+        // createAccessibilityHandler() below. Deliberately NOT wired to any
+        // live/continuous announcement: this component's own 30 Hz repaint
+        // timer must never trigger AT notifications, which would produce
+        // constant chatter far worse than the previous silence.
+        class MeterValueInterface;
+
         void timerCallback() override;
         const juce::Image& faceForCurrentWidth() const noexcept;
         const juce::Image& needleForCurrentWidth() const noexcept;

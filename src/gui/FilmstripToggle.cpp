@@ -1,4 +1,5 @@
 #include "FilmstripToggle.h"
+#include "BasilicaLookAndFeel.h"
 #include "ImageDensity.h"
 
 namespace basilica::gui
@@ -45,5 +46,12 @@ namespace basilica::gui
         g.drawImage (strip,
                      0, 0, getWidth(), getHeight(),
                      0, frameIndex * frameHeight, strip.getWidth(), frameHeight);
+
+        // A-01 fix (WCAG 2.4.7 Focus Visible): this paintButton() override
+        // fully replaces juce::Button's default drawing, so nothing else in
+        // the render path ever draws a keyboard-focus indicator - see
+        // BasilicaLookAndFeel.h's paintFocusRing() docs.
+        if (hasKeyboardFocus (true))
+            paintFocusRing (g, getLocalBounds().toFloat(), FocusRingShape::roundedRectangle);
     }
 }
