@@ -264,7 +264,22 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     juce::dsp::AudioBlock<float> sidechainBlock (sidechainBuffer);
     const auto* sidechainBlockPtr = sidechainBlock.getNumChannels() > 0 ? &sidechainBlock : nullptr;
 
+    // M3 GUI metering, input side: the block's peak level BEFORE the gate
+    // is applied (so the meter shows what is driving the detector, not the
+    // already-gated output). getMagnitude() is a simple allocation-free
+    // scan; skipped for zero-sample blocks so the last real level holds
+    // rather than collapsing to the floor.
+    const auto numSamples = mainBuffer.getNumSamples();
+
+    if (numSamples > 0 && mainBuffer.getNumChannels() > 0)
+        meterInputLevelDb.store (juce::Decibels::gainToDecibels (mainBuffer.getMagnitude (0, numSamples), -100.0f),
+                                 std::memory_order_relaxed);
+
     engine.process (mainBlock, sidechainBlockPtr);
+
+    // Gain-reduction side, read after process() so it reflects this block's
+    // final ramp position.
+    meterGainReductionDb.store (engine.getCurrentGainDb(), std::memory_order_relaxed);
 }
 
 //==============================================================================
