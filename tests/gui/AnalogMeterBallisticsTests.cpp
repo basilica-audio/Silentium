@@ -74,21 +74,23 @@ TEST_CASE ("AnalogMeter::tickAngleDegreesForDb interpolates the baked tick table
 {
     using basilica::gui::AnalogMeter;
 
-    // Exact table points (render_vu_dome_v1.py's TICKS, copied into
-    // AnalogMeter.cpp - the v0.3.1 ~93-degree circular-dome arc).
-    CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (-50.0f));
-    CHECK (AnalogMeter::tickAngleDegreesForDb (0.0f) == Catch::Approx (9.0f));
-    CHECK (AnalogMeter::tickAngleDegreesForDb (3.0f) == Catch::Approx (43.0f));
+    // Exact table points (.scaffold/gui-assets/vu-nano-v1/vu-metadata.json's
+    // tick_angle_at_db, measured by analyze_face.py against
+    // vu-face-no-needle.png and copied into AnalogMeter.cpp - the v0.3.2
+    // nano-banana VU face's own measured arc, NOT vu-dome-v1's old table).
+    CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (-41.94f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (0.0f) == Catch::Approx (14.08f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (3.0f) == Catch::Approx (42.04f));
 
     SECTION ("midpoint between two adjacent ticks interpolates linearly")
     {
-        // -10 -> -36deg, -7 -> -28deg; -8.5 is exactly halfway.
-        CHECK (AnalogMeter::tickAngleDegreesForDb (-8.5f) == Catch::Approx (-32.0f));
+        // -10 -> -27.69deg, -7 -> -16.31deg; -8.5 is exactly halfway.
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-8.5f) == Catch::Approx (-22.0f));
     }
 
     SECTION ("values beyond the table clamp to the nearest end, never extrapolate")
     {
-        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-50.0f));
-        CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (43.0f));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-41.94f));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (42.04f));
     }
 }

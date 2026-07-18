@@ -84,12 +84,14 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     resources/gui/knob_brass_v2_strip_320px_128f.png
     resources/gui/toggle_brass_v2_strip_40px_4f.png
     resources/gui/toggle_brass_v2_strip_80px_4f.png
-    resources/gui/vu_dome_face_200x200.png
-    resources/gui/vu_dome_face_400x400.png
-    resources/gui/vu_dome_needle_200x200.png
-    resources/gui/vu_dome_needle_400x400.png
-    resources/gui/vu_dome_glass_200x200.png
-    resources/gui/vu_dome_glass_400x400.png
+    # v0.3.2: vu-nano-v1 replaces vu-dome-v1 as the meter face/needle (the
+    # nano-banana-approved Weston-style VU) - single tier (1024x1024, no
+    # separate @1x/@2x renders, per .scaffold/gui-assets/vu-nano-v1/README.md)
+    # and no separate glass layer (the face's own baked highlight carries
+    # that read). The old vu_dome_*.png files remain on disk unreferenced
+    # (not deleted, in case of rollback) but are no longer embedded.
+    resources/gui/vu_nano_face_1024x1024.png
+    resources/gui/vu_nano_needle_1024x1024.png
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png

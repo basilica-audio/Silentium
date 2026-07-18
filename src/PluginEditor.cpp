@@ -87,16 +87,17 @@ namespace
 
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
-        // v0.3.1: circular glass-dome meter layers (vu-dome-v1), 200px @1x /
-        // 400px @2x - sized so the visible bezel fills the 190px meter bay
-        // at 100% with NO upscaling (see AnalogMeter::contentFractionOfCanvas).
+        // v0.3.2: nano-banana-approved Weston-style VU face + needle
+        // (vu-nano-v1, promoted from Silentium as the reusable Basilica
+        // Audio VU component) - single 1024x1024 tier per layer, no
+        // separate glass decal. The face asset embedded here is the MASKED
+        // derivative (transparent margin outside the measured bezel radius,
+        // see .scaffold/gui-assets/vu-nano-v1/mask_face.py), not the
+        // approved-but-opaque vu-face-no-needle.png the asset pipeline ships
+        // as its reference original.
         basilica::gui::AnalogMeter::Assets assets;
-        assets.face1x = loadImage (BinaryData::vu_dome_face_200x200_png, BinaryData::vu_dome_face_200x200_pngSize);
-        assets.face2x = loadImage (BinaryData::vu_dome_face_400x400_png, BinaryData::vu_dome_face_400x400_pngSize);
-        assets.needle1x = loadImage (BinaryData::vu_dome_needle_200x200_png, BinaryData::vu_dome_needle_200x200_pngSize);
-        assets.needle2x = loadImage (BinaryData::vu_dome_needle_400x400_png, BinaryData::vu_dome_needle_400x400_pngSize);
-        assets.glass1x = loadImage (BinaryData::vu_dome_glass_200x200_png, BinaryData::vu_dome_glass_200x200_pngSize);
-        assets.glass2x = loadImage (BinaryData::vu_dome_glass_400x400_png, BinaryData::vu_dome_glass_400x400_pngSize);
+        assets.face = loadImage (BinaryData::vu_nano_face_1024x1024_png, BinaryData::vu_nano_face_1024x1024_pngSize);
+        assets.needle = loadImage (BinaryData::vu_nano_needle_1024x1024_png, BinaryData::vu_nano_needle_1024x1024_pngSize);
         return assets;
     }
 }
@@ -312,10 +313,10 @@ void SilentiumAudioProcessorEditor::resized()
                                      s (plateLocal.getHeight()));
     };
 
-    // The vu-dome layers' visible bezel spans contentFractionOfCanvas (95%)
-    // of their canvas - expand each meter's bounds around its bay's centre
-    // so the VISIBLE dial fills the engraved seat exactly. The thin overhang
-    // is fully transparent and mouse-transparent.
+    // vu-nano-v1's visible bezel spans contentFractionOfCanvas (~79%) of its
+    // canvas - expand each meter's bounds around its bay's centre so the
+    // VISIBLE dial fills the engraved seat exactly. The margin is
+    // transparent (see mask_face.py) and mouse-transparent.
     const auto expandMeterBounds = [] (juce::Rectangle<int> bay)
     {
         const auto factor = 1.0f / basilica::gui::AnalogMeter::contentFractionOfCanvas;

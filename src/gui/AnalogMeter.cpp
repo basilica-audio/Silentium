@@ -1,17 +1,16 @@
 #include "AnalogMeter.h"
-#include "ImageDensity.h"
 
 namespace
 {
-    // Copied verbatim from .scaffold/gui-assets/render_vu_dome_v1.py's TICKS
-    // table (the actual generator of the circular dome face's engraved arc)
-    // - (dB, degrees clockwise from straight-up, matching
-    // juce::AffineTransform::rotated's "clockwise" convention once the
-    // source PNG is read as ordinary pixel-space image data). v0.3.1: the
-    // vu-dome-v1 asset family sweeps a classic ~93-degree VU arc (-50..+43,
-    // 0 dB right-of-centre) - the old vu-brass-v1 80-degree table does NOT
-    // match this asset and must never be restored without also restoring
-    // the old rectangular face art. Not evenly spaced - hand-tuned classic
+    // Copied verbatim from .scaffold/gui-assets/vu-nano-v1/vu-metadata.json's
+    // tick_angle_at_db (measured by analyze_face.py against
+    // vu-face-no-needle.png - see that script's docstring for the polar
+    // "unwrap" method). v0.3.2: the vu-nano-v1 asset family - this table is
+    // NOT interchangeable with vu-dome-v1's old ~93-degree table even though
+    // the two happen to look superficially similar (both classic VU arcs);
+    // a side-by-side overlay confirmed the old table's rays land measurably
+    // off this face's actual tick marks. Nine labelled ticks (-20 dB has the
+    // widest sweep down to +3 dB), not evenly spaced - a hand-tuned classic
     // VU arc, not a physically derived curve.
     struct Tick
     {
@@ -19,11 +18,10 @@ namespace
         float deg;
     };
 
-    constexpr std::array<Tick, 11> ticks {
-        Tick { -20.0f, -50.0f }, Tick { -10.0f, -36.0f }, Tick { -7.0f, -28.0f },
-        Tick { -5.0f, -20.0f }, Tick { -3.0f, -11.0f }, Tick { -2.0f, -5.0f },
-        Tick { -1.0f, 2.0f }, Tick { 0.0f, 9.0f }, Tick { 1.0f, 20.0f },
-        Tick { 2.0f, 31.0f }, Tick { 3.0f, 43.0f }
+    constexpr std::array<Tick, 9> ticks {
+        Tick { -20.0f, -41.94f }, Tick { -10.0f, -27.69f }, Tick { -7.0f, -16.31f },
+        Tick { -5.0f, -6.47f }, Tick { -3.0f, 3.19f }, Tick { 0.0f, 14.08f },
+        Tick { 1.0f, 23.39f }, Tick { 2.0f, 32.71f }, Tick { 3.0f, 42.04f }
     };
 }
 
@@ -37,10 +35,10 @@ namespace basilica::gui
 
         // Pure display - never steals mouse events from controls that may
         // sit under this component's (partly transparent) bounds. Relevant
-        // because vu-brass-v1's layers carry large transparent margins
-        // around the dial content (see contentFractionOfCanvas in
-        // AnalogMeter.h), so the component is deliberately laid out larger
-        // than the visible dial.
+        // because vu-nano-v1's layers carry a transparent margin around the
+        // dial content (see contentFractionOfCanvas in AnalogMeter.h), so
+        // the component is deliberately laid out larger than the visible
+        // dial.
         setInterceptsMouseClicks (false, false);
 
         startTimerHz ((int) timerHz);
@@ -95,53 +93,31 @@ namespace basilica::gui
         }
     }
 
-    const juce::Image& AnalogMeter::faceForCurrentWidth() const noexcept
-    {
-        const auto native1xWidth = assets.face1x.isValid() ? assets.face1x.getWidth() : (assets.face2x.getWidth() / 2);
-        return basilica::gui::pickImageForWidth (assets.face1x, assets.face2x, native1xWidth, getWidth());
-    }
-
-    const juce::Image& AnalogMeter::needleForCurrentWidth() const noexcept
-    {
-        const auto native1xWidth = assets.needle1x.isValid() ? assets.needle1x.getWidth() : (assets.needle2x.getWidth() / 2);
-        return basilica::gui::pickImageForWidth (assets.needle1x, assets.needle2x, native1xWidth, getWidth());
-    }
-
-    const juce::Image& AnalogMeter::glassForCurrentWidth() const noexcept
-    {
-        const auto native1xWidth = assets.glass1x.isValid() ? assets.glass1x.getWidth() : (assets.glass2x.getWidth() / 2);
-        return basilica::gui::pickImageForWidth (assets.glass1x, assets.glass2x, native1xWidth, getWidth());
-    }
-
     void AnalogMeter::paint (juce::Graphics& g)
     {
         const auto bounds = getLocalBounds().toFloat();
 
-        const auto& face = faceForCurrentWidth();
-        if (face.isValid())
-            g.drawImage (face, bounds);
+        if (assets.face.isValid())
+            g.drawImage (assets.face, bounds);
 
-        const auto& needle = needleForCurrentWidth();
-        if (needle.isValid())
+        if (assets.needle.isValid())
         {
-            const auto sx = bounds.getWidth() / (float) needle.getWidth();
-            const auto sy = bounds.getHeight() / (float) needle.getHeight();
+            const auto sx = bounds.getWidth() / (float) assets.needle.getWidth();
+            const auto sy = bounds.getHeight() / (float) assets.needle.getHeight();
             const auto pivotX = bounds.getWidth() * pivotXFraction;
             const auto pivotY = bounds.getHeight() * pivotYFraction;
 
-            const auto restDeg = ticks.front().deg;
+            // vu-nano-v1's needle is rendered at rest pointing straight up
+            // (0 deg) - the measured tick angle IS the absolute rotation,
+            // no rest-angle delta to subtract (unlike vu-dome-v1).
             const auto targetDeg = tickAngleDegreesForDb (smoothedDb);
-            const auto deltaRadians = juce::degreesToRadians (targetDeg - restDeg);
+            const auto radians = juce::degreesToRadians (targetDeg);
 
             const auto transform = juce::AffineTransform::scale (sx, sy)
-                                        .rotated (deltaRadians, pivotX, pivotY);
+                                        .rotated (radians, pivotX, pivotY);
 
-            g.drawImageTransformed (needle, transform);
+            g.drawImageTransformed (assets.needle, transform);
         }
-
-        const auto& glass = glassForCurrentWidth();
-        if (glass.isValid())
-            g.drawImage (glass, bounds);
     }
 
     // A-07 fix (M3 a11y review): a read-only text value interface exposing

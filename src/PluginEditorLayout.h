@@ -33,10 +33,14 @@ namespace slnt::layout
     const juce::Point<int> roundelCentre1x { 450, 82 };
     constexpr int roundelRadius1x = 35;
 
-    // v0.3.1: CIRCULAR vu-dome meters (vu-dome-v1 asset family) replace the
-    // old 286x150 rectangular meter bays - square 190px bays, dial centres
-    // (280, 217) and (620, 217), symmetric about the plate centre. Margins
-    // between vertically adjacent bays stay explicit and are asserted by
+    // v0.3.1: CIRCULAR meters replace the old 286x150 rectangular meter
+    // bays - square 190px bays, dial centres (280, 217) and (620, 217),
+    // symmetric about the plate centre. v0.3.2: the meter asset family
+    // changed again (vu-dome-v1 -> vu-nano-v1, see AnalogMeter.h/.cpp) but
+    // this bay geometry did NOT - the visible dial still fills exactly
+    // 190px regardless of the backing asset's own content-fraction/margin,
+    // see AnalogMeter::contentFractionOfCanvas's docs. Margins between
+    // vertically adjacent bays stay explicit and are asserted by
     // tests/gui/EditorLayoutTests.cpp:
     //   headerBay bottom (46 + 71 = 117)
     //     -> 5px margin ->
