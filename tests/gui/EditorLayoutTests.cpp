@@ -2,11 +2,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-// v0.3.2 (single photoreal master faceplate revision): the knob grid is a
-// STAGGERED layout baked into the master render (row 2 offset ~half a cell
-// right of row 1), asserted here via explicit per-knob centres rather than
-// derived grid cells - see PluginEditorLayout.h's docs and
-// faceplate-metadata.json.
+// v0.3.3 (true component-assembly revision): the knob grid is a STAGGERED
+// layout measured directly off the bare master-04 baseline plate (row 2
+// offset right of row 1), asserted here via explicit per-knob centres
+// rather than derived grid cells - see PluginEditorLayout.h's docs.
 TEST_CASE ("Knob-row Y-alignment invariant: every knob in a row shares the exact same Y centre", "[gui][layout]")
 {
     using namespace slnt::layout;
@@ -25,10 +24,12 @@ TEST_CASE ("Knob-row Y-alignment invariant: every knob in a row shares the exact
     // structurally impossible to violate (there is nowhere for a knob to
     // carry a divergent Y). This test asserts that structural guarantee
     // plus the two rows' relative ordering (row 2 below row 1, both inside
-    // the plate).
+    // the plate) and that every knob shares knobDiameter1x (also a single
+    // shared constant, not a per-knob value).
     CHECK (knobRow2Y1x > knobRow1Y1x);
     CHECK (knobRow1X1x.size() == 5);
     CHECK (knobRow2X1x.size() == 4);
+    CHECK (knobDiameter1x > 0);
 
     // Every row-1 X strictly increases left to right (no accidental
     // duplicate/reversed entries), same for row 2.
@@ -54,13 +55,23 @@ TEST_CASE ("Both meter bays and the full knob/toggle grid stay within the plate'
 
     const juce::Rectangle<int> plateCanvas { 0, 0, plateWidth1x, plateHeight1x };
 
-    const juce::Rectangle<int> meterLBay { meterLPivot1x.x - meterHalfSize1x, meterLPivot1x.y - meterHalfSize1x,
-                                           meterHalfSize1x * 2, meterHalfSize1x * 2 };
-    const juce::Rectangle<int> meterRBay { meterRPivot1x.x - meterHalfSize1x, meterRPivot1x.y - meterHalfSize1x,
-                                           meterHalfSize1x * 2, meterHalfSize1x * 2 };
+    // Each AnalogMeter's bounds are the exact box its face asset is drawn
+    // into (meterLTopLeft1x/meterRTopLeft1x + meterComponentSize1x) - NOT a
+    // pivot-centred square (see PluginEditorLayout.h's docs for why that
+    // v0.3.2 convention no longer applies to the fresh face asset).
+    const juce::Rectangle<int> meterLBay { meterLTopLeft1x.x, meterLTopLeft1x.y, meterComponentSize1x, meterComponentSize1x };
+    const juce::Rectangle<int> meterRBay { meterRTopLeft1x.x, meterRTopLeft1x.y, meterComponentSize1x, meterComponentSize1x };
 
     CHECK (plateCanvas.contains (meterLBay));
     CHECK (plateCanvas.contains (meterRBay));
+
+    // The pivot itself (used for the needle/glow/LED) must also land
+    // strictly inside its own meter bay - a fraction outside [0,1] would
+    // mean the needle rotates around a point off the drawn face entirely.
+    CHECK (meterPivotXFraction > 0.0f);
+    CHECK (meterPivotXFraction < 1.0f);
+    CHECK (meterPivotYFraction > 0.0f);
+    CHECK (meterPivotYFraction < 1.0f);
 
     const auto knobRadius = knobDiameter1x / 2;
 
@@ -80,21 +91,31 @@ TEST_CASE ("The two meter bays do not overlap each other or the knob grid", "[gu
 {
     using namespace slnt::layout;
 
-    const juce::Rectangle<int> meterLBay { meterLPivot1x.x - meterHalfSize1x, meterLPivot1x.y - meterHalfSize1x,
-                                           meterHalfSize1x * 2, meterHalfSize1x * 2 };
-    const juce::Rectangle<int> meterRBay { meterRPivot1x.x - meterHalfSize1x, meterRPivot1x.y - meterHalfSize1x,
-                                           meterHalfSize1x * 2, meterHalfSize1x * 2 };
+    const juce::Rectangle<int> meterLBay { meterLTopLeft1x.x, meterLTopLeft1x.y, meterComponentSize1x, meterComponentSize1x };
+    const juce::Rectangle<int> meterRBay { meterRTopLeft1x.x, meterRTopLeft1x.y, meterComponentSize1x, meterComponentSize1x };
 
     CHECK_FALSE (meterLBay.intersects (meterRBay));
 
-    // Both meter pivots (and therefore the meters themselves, since the
-    // needle's whole reach is measured well within meterHalfSize1x, see
-    // faceplate-metadata.json) sit strictly above the knob grid's top row -
-    // asserted against the pivot Y rather than the full pivot-centred
-    // SQUARE bounds, since that square deliberately overshoots the visible
-    // dial (it exists to contain the needle sweep + glow, not to model the
-    // baked dial's true silhouette) and would otherwise produce a false
-    // failure against the tight-but-non-overlapping real artwork.
-    CHECK (meterLPivot1x.y < knobRow1Y1x);
-    CHECK (meterRPivot1x.y < knobRow1Y1x);
+    // Both meter bays sit strictly above the knob grid's top row - the
+    // bays' own bottom edge (not just the pivot) is the right thing to
+    // assert here now that the bay is deliberately fit to the face art's
+    // true bezel rather than overshooting for needle-sweep margin.
+    CHECK (meterLBay.getBottom() <= knobRow1Y1x);
+    CHECK (meterRBay.getBottom() <= knobRow1Y1x);
+}
+
+TEST_CASE ("Rose emblem and corner screws stay within the plate's own canvas bounds", "[gui][layout]")
+{
+    using namespace slnt::layout;
+
+    const juce::Rectangle<int> plateCanvas { 0, 0, plateWidth1x, plateHeight1x };
+
+    const auto roseRadius = roseDiameter1x / 2;
+    CHECK (plateCanvas.contains (juce::Rectangle<int> (roseCentre1x.x - roseRadius, roseCentre1x.y - roseRadius,
+                                                       roseDiameter1x, roseDiameter1x)));
+
+    const auto screwRadius = screwDiameter1x / 2;
+    for (const auto& centre : screwCentres1x)
+        CHECK (plateCanvas.contains (juce::Rectangle<int> (centre.x - screwRadius, centre.y - screwRadius,
+                                                           screwDiameter1x, screwDiameter1x)));
 }

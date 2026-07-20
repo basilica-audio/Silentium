@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "gui/RotatingImageKnob.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -83,7 +84,13 @@ TEST_CASE ("Knob accessibility value strings include their declared unit", "[gui
 
     for (const auto& expectation : expectations)
     {
-        auto* knob = findChildByTitle<basilica::gui::FilmstripKnob> (editor, expectation.label);
+        // v0.3.3: the 9 knobs are RotatingImageKnob (a single master-ref
+        // image rotated live), not FilmstripKnob, since this revision - the
+        // accessibility wiring under test (SliderAttachment's
+        // textFromValueFunction, set identically in PluginEditor.cpp's
+        // configureKnob() regardless of which juce::Slider subclass) is
+        // unaffected by that change.
+        auto* knob = findChildByTitle<basilica::gui::RotatingImageKnob> (editor, expectation.label);
         REQUIRE (knob != nullptr);
 
         const auto handler = createHandlerForTest (*knob);

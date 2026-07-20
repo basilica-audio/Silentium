@@ -80,29 +80,61 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     # Blender pre-render pipeline at .scaffold/gui-assets/ - see each asset
     # family's README there for provenance/verification). The repo is
     # self-contained: these copies are the ones the plugin ships with.
-    resources/gui/knob_brass_v2_strip_160px_128f.png
-    resources/gui/knob_brass_v2_strip_320px_128f.png
+    # knob_brass_v2_strip_*.png (the earlier filmstrip-rotation knob asset)
+    # is no longer embedded as of v0.3.3 - the 9 knobs now draw
+    # knob-v4.png (below) via a single-image JUCE rotation instead (see
+    # RotatingImageKnob.h's docs for why: no v4-generation filmstrip render
+    # exists yet, and reusing the v2 filmstrip's different render generation
+    # reintroduced a visible style mismatch against the new master-ref
+    # assets). The PNG remains on disk unreferenced, not deleted.
     resources/gui/toggle_brass_v2_strip_40px_4f.png
     resources/gui/toggle_brass_v2_strip_80px_4f.png
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png
     resources/gui/button_brass_v1_hover_80x56.png
-    # v0.3.2 (this revision): single photoreal MASTER faceplate render -
-    # obsidian plate, both VU dials (face/ticks/hub/anchor bar), tube-vent
-    # grilles, all 9 brass knobs, both toggles, and the rose emblem all
-    # baked into one image (.scaffold/gui-assets/faceplate-silentium-v3/,
-    # see faceplate-metadata.json for the measured geometry PluginEditor.cpp
-    # and PluginEditorLayout.h position live controls against). Replaces the
-    # v0.3.1/v0.3.2 JUCE-drawn glossy plate AND the separate vu-nano-v1
-    # face/needle pair - only the rotating needle is still drawn live now
-    # (vu-needle-master-v3.png, a hand-authored vector-equivalent asset, see
-    # that directory's faceplate-metadata.json "asset_provenance" for why a
-    # raster extraction of the master's own needle wasn't used). The old
-    # faceplate_silentium_v2_*.png and vu_nano_*.png files remain on disk
-    # unreferenced (not deleted, in case of rollback) but are no longer
-    # embedded.
-    resources/gui/faceplate-silentium-v3.png
+    # v0.3.2 (single-master-render revision, now superseded): the old
+    # single-image faceplate-silentium-v3.png (obsidian plate + baked
+    # knobs/toggles/rose all in one PNG) remains on disk unreferenced (not
+    # deleted, in case of rollback) but is no longer embedded.
+    #
+    # v0.3.3 (this revision): true COMPONENT ASSEMBLY - every element is now
+    # a standalone master-reference asset composited in PluginEditor.cpp/
+    # AnalogMeter.cpp rather than one baked image, per Yves' final art
+    # direction (.scaffold/gui-assets/faceplate-silentium-v3/, master-04
+    # generation - see PluginEditorLayout.h's docs for the measured geometry
+    # each asset is positioned against). All of the PNGs below except
+    # faceplate-silentium-v4-base.png and vu-needle-master-v3.png were
+    # RE-DERIVED from their *-master-ref.png source renders (same directory)
+    # by this revision's own analysis scripts
+    # (.scaffold/gui-assets/faceplate-silentium-v3/analysis/extract_rose_v4.py
+    # for the rose emblem) - every *-master-ref.png source render ships on a
+    # PURE BLACK background with no alpha channel, so each was converted
+    # ONCE, OFFLINE (numpy/PIL, not at plugin runtime), into a proper RGBA
+    # PNG before embedding - the shipped resources/gui/*-v4.png files below
+    # are already the converted RGBA result; PluginEditor.cpp/AnalogMeter.cpp
+    # just draw them directly:
+    #   - knob-v4/screw-v4/vu-face-v4: a measured CIRCULAR alpha cutout (the
+    #     object is solid/opaque matter that must occlude whatever sits
+    #     behind it - a luminance-derived alpha would wrongly turn the
+    #     object's own shadowed crevices semi-transparent).
+    #   - led-v4/tube-glow-v4/reflection-v4: alpha = max(R,G,B) of the
+    #     source pixel (a true emissive glow/reflection asset, where
+    #     brightness and "how much this should show" are the same thing by
+    #     construction - draws correctly with ordinary SrcOver compositing,
+    #     no real additive blend mode needed).
+    #   - rose-emblem-v4: colour-thresholded (gold vs the source's dark
+    #     squircle mounting plate) rather than the earlier iteration's
+    #     circular-crop extraction, which left the squircle's background
+    #     disc intact - see analysis/extract_rose_v4.py.
+    resources/gui/faceplate-silentium-v4-base.png
+    resources/gui/reflection-v4.png
+    resources/gui/tube-glow-v4.png
+    resources/gui/rose-emblem-v4.png
+    resources/gui/vu-face-v4.png
+    resources/gui/led-v4.png
+    resources/gui/knob-v4.png
+    resources/gui/screw-v4.png
     resources/gui/vu-needle-master-v3.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
     # for every JUCE-drawn text surface.

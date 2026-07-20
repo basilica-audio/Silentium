@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 #include "PluginEditorLayout.h"
 #include "PluginProcessor.h"
+#include "gui/Flicker.h"
 #include "params/ParameterIds.h"
 #include "presets/Localisation.h"
 
@@ -17,19 +18,16 @@ namespace
     struct KnobLayoutEntry
     {
         const char* parameterId;
-        const char* labelText; // accessible name only - the master render carries no baked text labels
+        const char* labelText; // accessible name only - no baked text labels
         int centreX1x;
         int centreY1x;
     };
 
     // Signal-flow-grouped: row 1 is the primary gate shape (Threshold
     // through Range), row 2 is the voicing/refinement controls (Lookahead,
-    // the sidechain filters, Knee) - the same grouping ParameterLayout.cpp's
-    // own comments use. Positions are the master render's own STAGGERED knob
-    // centres (PluginEditorLayout.h's knobRow1X1x/knobRow2X1x, re-derived
-    // from faceplate-metadata.json) - row 2 sits offset ~half a cell right
-    // of row 1, not a straight grid, so each entry carries its own explicit
-    // centre rather than a (col, row) pair.
+    // the sidechain filters, Knee) - same grouping ParameterLayout.cpp's own
+    // comments use. Positions are the master render's own STAGGERED knob
+    // centres (PluginEditorLayout.h's knobRow1X1x/knobRow2X1x).
     constexpr std::array<KnobLayoutEntry, 9> knobLayout {
         KnobLayoutEntry { ParamIDs::threshold, "Threshold", knobRow1X1x[0], knobRow1Y1x },
         KnobLayoutEntry { ParamIDs::attack, "Attack", knobRow1X1x[1], knobRow1Y1x },
@@ -53,6 +51,15 @@ namespace
         ToggleLayoutEntry { ParamIDs::listen, "Listen" },
     };
 
+    // Native content-diameter fractions for the master-ref assets this
+    // editor draws directly (not via AnalogMeter/RotatingImageKnob, which
+    // carry their own) - see CMakeLists.txt's asset-list comment for how
+    // each *-v4.png was derived from its *-master-ref.png source render.
+    // knob-v4.png's own disc content (the knurled brass disc, excluding its
+    // drop shadow) occupies this fraction of its 1024x1024 canvas, measured
+    // via the same bounding-box technique as the other v4 assets.
+    constexpr float knobContentDiameterFraction = 768.0f / 1024.0f;
+
     juce::Image loadImage (const char* data, int size)
     {
         return juce::ImageCache::getFromMemory (data, size);
@@ -66,9 +73,7 @@ namespace
     // initialisers run in declaration order regardless of the order
     // they're written in, so this helper (called from presetBar's own
     // initialiser expression below) is what actually guarantees
-    // installLocalisation() runs before presetBar exists, not an
-    // installLocalisation() call in the constructor *body*, which would run
-    // too late.
+    // installLocalisation() runs before presetBar exists.
     basilica::presets::PresetManager& initLocalisationThenGetPresetManager (SilentiumAudioProcessor& processor)
     {
         basilica::presets::installLocalisation (BinaryData::de_txt, BinaryData::de_txtSize);
@@ -76,24 +81,20 @@ namespace
     }
 
     // Non-parameter, per-session UI state: the stepped scale choice (0/1/2)
-    // stored as a plain property directly on apvts.state. This ValueTree is
-    // exactly what getStateInformation()/setStateInformation() serialise (see
-    // PluginProcessor.cpp), so a property set here round-trips through host
-    // session save/reload the same way the registered parameters do, without
-    // needing its own parameter (a scale step is a view choice, not
-    // something that should be host-automatable or appear in a DAW's
-    // parameter list).
+    // stored as a plain property directly on apvts.state.
     constexpr const char* uiScaleStepProperty = "uiScaleStep";
 
+    // v0.3.3: both meters now draw a real dial FACE and a peak LED (see
+    // AnalogMeter.h's docs for why the face/pivot handling changed from
+    // v0.3.2) in addition to the needle. vu-face-v4.png and led-v4.png are
+    // shared (both meters mirror the same dial design/LED), the needle
+    // asset is unchanged from v0.3.2.
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
-        // v0.3.2 (this revision): the dial FACE is baked into the shared
-        // master faceplate background (see PluginEditor.h's docs) - only
-        // the live rotating needle is still a component-owned asset.
-        // assets.face is deliberately left default/invalid, which AnalogMeter::
-        // paint() treats as "skip the face draw entirely".
         basilica::gui::AnalogMeter::Assets assets;
+        assets.face = loadImage (BinaryData::vufacev4_png, BinaryData::vufacev4_pngSize);
         assets.needle = loadImage (BinaryData::vuneedlemasterv3_png, BinaryData::vuneedlemasterv3_pngSize);
+        assets.led = loadImage (BinaryData::ledv4_png, BinaryData::ledv4_pngSize);
         return assets;
     }
 }
@@ -102,12 +103,20 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     : juce::AudioProcessorEditor (&processorToEdit),
       audioProcessor (processorToEdit),
       presetBar (initLocalisationThenGetPresetManager (processorToEdit)),
-      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter", 0.0f),
-      inputLevelMeter (makeMeterAssets(), "Input Level meter", 1.0f)
+      gainReductionMeter (makeMeterAssets(), "Gain Reduction meter", 0.0f, meterPivotXFraction, meterPivotYFraction),
+      inputLevelMeter (makeMeterAssets(), "Input Level meter", 1.0f, meterPivotXFraction, meterPivotYFraction)
 {
     setLookAndFeel (&lookAndFeel);
 
-    faceplateImage = loadImage (BinaryData::faceplatesilentiumv3_png, BinaryData::faceplatesilentiumv3_pngSize);
+    // Static/decorative layers - see this file's top-of-file docs and
+    // paint() below for the compositing order/technique for each.
+    faceplateBaseImage = loadImage (BinaryData::faceplatesilentiumv4base_png, BinaryData::faceplatesilentiumv4base_pngSize);
+    reflectionImage = loadImage (BinaryData::reflectionv4_png, BinaryData::reflectionv4_pngSize);
+    tubeGlowImage = loadImage (BinaryData::tubeglowv4_png, BinaryData::tubeglowv4_pngSize);
+    roseEmblemImage = loadImage (BinaryData::roseemblemv4_png, BinaryData::roseemblemv4_pngSize);
+    screwImage = loadImage (BinaryData::screwv4_png, BinaryData::screwv4_pngSize);
+
+    ventFlickerStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
     // Creation order below doubles as the accessibility/keyboard focus
     // order (JUCE's default FocusTraverser walks children in z-order,
@@ -119,11 +128,7 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
 
     // A-05 fix (M3 a11y review): button text/title are set from
     // applyScaleStep() below, which runs once here at construction (with
-    // the stored/default step) and again on every subsequent click, so the
-    // accessible name always reflects the CURRENT scale instead of a static
-    // "Window scale" that never updates (see applyScaleStep()'s docs).
-    // componentID is set purely so tests/gui/EditorAccessibilityTests.cpp
-    // can find this button without depending on its (now dynamic) title.
+    // the stored/default step) and again on every subsequent click.
     scaleButton.setComponentID ("scaleButton");
     scaleButton.onClick = [this] { cycleScale(); };
     addAndMakeVisible (scaleButton);
@@ -131,18 +136,27 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     addAndMakeVisible (gainReductionMeter);
     addAndMakeVisible (inputLevelMeter);
 
-    const auto knobStrip1x = loadImage (BinaryData::knob_brass_v2_strip_160px_128f_png,
-                                        BinaryData::knob_brass_v2_strip_160px_128f_pngSize);
-    const auto knobStrip2x = loadImage (BinaryData::knob_brass_v2_strip_320px_128f_png,
-                                        BinaryData::knob_brass_v2_strip_320px_128f_pngSize);
+    // v0.3.3: the 9 knobs are drawn from a SINGLE master-ref image
+    // (knob-v4.png), rotated live via RotatingImageKnob rather than the
+    // older FilmstripKnob's pre-rendered rotation strip - see
+    // RotatingImageKnob.h's docs for why (no filmstrip render exists yet
+    // for this asset generation).
+    const auto knobImage = loadImage (BinaryData::knobv4_png, BinaryData::knobv4_pngSize);
 
     for (size_t i = 0; i < knobLayout.size(); ++i)
     {
         auto& entry = knobLayout[i];
-        knobs[i].slider = std::make_unique<basilica::gui::FilmstripKnob> (knobStrip1x, knobStrip2x, 128);
+        knobs[i].slider = std::make_unique<basilica::gui::RotatingImageKnob> (knobImage, knobContentDiameterFraction);
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
     }
 
+    // Footer toggles (Duck, Listen): still the OLDER toggle_brass_v2_strip_*
+    // filmstrip asset - flagged honestly in this file's top-of-file docs and
+    // the revision's handoff notes as the one element that did NOT get a
+    // fresh master-ref render this iteration (none was commissioned/
+    // supplied). Kept fully functional (real ButtonAttachment) rather than
+    // removed, since Duck/Listen are real parameters a user needs direct
+    // GUI access to, not just automation-lane access.
     const auto toggleStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
                                           BinaryData::toggle_brass_v2_strip_40px_4f_pngSize);
     const auto toggleStrip2x = loadImage (BinaryData::toggle_brass_v2_strip_80px_4f_png,
@@ -184,8 +198,7 @@ void SilentiumAudioProcessorEditor::configureKnob (Knob& knob, const juce::Strin
     // SliderAttachment MUST be constructed before the textFromValueFunction
     // override below, not after: JUCE 8.0.14's SliderParameterAttachment
     // constructor (juce_ParameterAttachments.cpp:128) itself assigns
-    // `slider.textFromValueFunction = [&param] (double v) { return
-    // param.getText (...); }` (no unit) as part of wiring the attachment -
+    // `slider.textFromValueFunction` as part of wiring the attachment -
     // setting our own function BEFORE this point would be silently
     // clobbered the moment the attachment is created.
     knob.attachment = std::make_unique<SliderAttachment> (audioProcessor.apvts, parameterId, *knob.slider);
@@ -193,17 +206,8 @@ void SilentiumAudioProcessorEditor::configureKnob (Knob& knob, const juce::Strin
     if (auto* param = audioProcessor.apvts.getParameter (parameterId))
     {
         // A-02 fix (M3 a11y review): every parameter declares its unit via
-        // .withLabel() in ParameterLayout.cpp (dB/ms/Hz), but that metadata
-        // was never read by the GUI layer - SliderAttachment's own
-        // textFromValueFunction (see above) formats the value but drops the
-        // unit entirely. This feeds BOTH the popup value display
-        // (setPopupDisplayEnabled above) and the accessibility value string
-        // (juce_Slider.cpp:1811's
-        // SliderAccessibilityHandler::ValueInterface::getCurrentValueAsString()
-        // calls Slider::getTextFromValue(), which calls this same function),
-        // so one fix here covers both surfaces. Still uses the parameter's
-        // own getText() (not just a raw suffix) so the reported precision/
-        // rounding matches what the host itself would display.
+        // .withLabel() in ParameterLayout.cpp (dB/ms/Hz) - feed that into
+        // both the popup value display and the accessibility value string.
         knob.slider->textFromValueFunction = [param] (double v)
         {
             return param->getText (param->convertTo0to1 ((float) v), 0) + " " + param->getLabel();
@@ -235,13 +239,7 @@ void SilentiumAudioProcessorEditor::applyScaleStep (int newStepIndex)
     scaleButton.setButtonText (percentText);
 
     // A-05 fix (M3 a11y review): an explicitly-set AccessibilityHandler
-    // title always wins over the button's own text for screen readers
-    // (JUCE 8.0.14 juce_ButtonAccessibilityHandler.h:67-75), so a title set
-    // once at construction and never updated would silently strand AT users
-    // on "Window scale" forever, with no way to learn the plugin is now at
-    // 150%/200%. Re-setting the title here, alongside the visible text, on
-    // every step change (construction included, since this runs from the
-    // constructor too) keeps both surfaces in sync.
+    // title always wins over the button's own text for screen readers.
     scaleButton.setTitle ("Window scale, " + percentText);
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
@@ -255,11 +253,10 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillAll (juce::Colours::black);
 
     const auto scale = scaleSteps[(size_t) scaleStepIndex];
+    const auto s = [scale] (float v) { return v * scale; };
 
     // The top strip is an integrated dark header band (matching the
-    // near-black plate) with a thin warm gold rule under it, not raw black
-    // behind floating default-grey buttons - the preset bar's brass buttons
-    // and the recessed name display (BasilicaLookAndFeel) sit on this band.
+    // near-black plate) with a thin warm gold rule under it.
     const auto stripHeight = (float) topStripHeight1x * scale;
     g.setGradientFill (juce::ColourGradient (juce::Colour (0xff17141a), 0.0f, 0.0f,
                                              juce::Colour (0xff0b090d), 0.0f, stripHeight, false));
@@ -267,25 +264,88 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     g.setColour (juce::Colour (0xff5a4420));
     g.fillRect (juce::Rectangle<float> (0.0f, stripHeight - 1.0f * scale, (float) getWidth(), 1.0f * scale));
 
-    const auto plateBounds = juce::Rectangle<float> (0.0f, (float) topStripHeight1x * scale + (float) topStripGap1x * scale,
+    const auto plateOrigin = juce::Point<float> (0.0f, stripHeight + (float) topStripGap1x * scale);
+    const auto plateBounds = juce::Rectangle<float> (plateOrigin.x, plateOrigin.y,
                                                       (float) plateWidth1x * scale, (float) plateHeight1x * scale);
 
-    // v0.3.2 (this revision): the ENTIRE plate - obsidian plate, both VU
-    // dials, tube-vent grilles, all 9 knobs, both toggles, and the rose
-    // emblem - is a single photoreal master render
-    // (resources/gui/faceplate-silentium-v3.png), drawn scaled-to-fit here.
-    // Replaces every previous JUCE-drawn plate layer (glossy-black base
-    // gradient, upper-left softbox reflection, hairline bevel, header
-    // roundel/brand icon) - all of that is now baked into the art itself,
-    // and painting a synthetic gradient/shadow/bevel ON TOP of a photoreal
-    // render is exactly the "Frankenstein" mismatch Yves rejected.
-    // RectanglePlacement::centred preserves the master's own aspect ratio
-    // and letterboxes rather than stretching if plateBounds' aspect ever
-    // drifts from the master's (it does not in the current @1x table -
-    // plateHeight1x was chosen to match masterCanvasHeightPx / masterCanvasWidthPx
-    // exactly - this is purely defensive for future edits).
-    if (faceplateImage.isValid())
-        g.drawImage (faceplateImage, plateBounds, juce::RectanglePlacement::centred, false);
+    const auto toPlatePointF = [&] (juce::Point<int> plateLocal)
+    {
+        return juce::Point<float> (plateOrigin.x + s ((float) plateLocal.x),
+                                   plateOrigin.y + s ((float) plateLocal.y));
+    };
+
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+
+    // 1. Bare baseline plate (obsidian, screws/tube-vent grille/dial voids
+    // already baked in by the render - only the interactive dial
+    // faces/needles/LEDs, the knobs, the rose emblem, and the tube-glow
+    // flicker are missing).
+    if (faceplateBaseImage.isValid())
+        g.drawImage (faceplateBaseImage, plateBounds, juce::RectanglePlacement::centred, false);
+
+    // 2. Softbox reflection - a full-canvas overlay pre-aligned to the
+    // base plate's own diagonal highlight (reflection-master-ref.png's own
+    // provenance: "matches the master's diagonal upper-left reflection
+    // exactly"), baked to a DELIBERATELY LOW alpha gain (0.08x, see
+    // CMakeLists.txt's asset docs) before embedding - at full/native
+    // brightness this layer badly overexposed the plate (visually
+    // confirmed and rejected during this revision's own asset prep, before
+    // any JUCE code was written), because the bare plate already bakes its
+    // own version of this same highlight; drawn here purely as a subtle
+    // reinforcement, not a second independent highlight.
+    if (reflectionImage.isValid())
+        g.drawImage (reflectionImage, plateBounds, juce::RectanglePlacement::centred, false);
+
+    // 3. Tube-vent glow flicker: 2 independently-flickering instances per
+    // side (4 total), additively reinforcing the warm glow already baked
+    // into 2 of the 5 slots per vent bank in the base plate render. Uses
+    // the SAME multi-sine flicker technique as AnalogMeter's own dial glow
+    // (see Flicker.h) - repainted every 30Hz tick from timerCallback(),
+    // restricted to ventGlowRepaintBounds so this doesn't force a full
+    // 900x604 plate redraw every frame.
+    if (tubeGlowImage.isValid())
+    {
+        const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+        const auto drawSize = juce::Point<float> (s ((float) tubeGlowDrawWidth1x), s ((float) tubeGlowDrawHeight1x));
+
+        const auto drawTube = [&] (juce::Point<int> bankCentre1x, int xOffset1x, float phaseSeed)
+        {
+            const auto centre = toPlatePointF ({ bankCentre1x.x + xOffset1x, bankCentre1x.y });
+            const auto flicker = basilica::gui::flickerMultiplier (now, ventFlickerStartTimeSeconds, phaseSeed, 0.04f);
+
+            juce::Graphics::ScopedSaveState saveState (g);
+            g.setOpacity (juce::jlimit (0.0f, 1.0f, flicker));
+            g.drawImage (tubeGlowImage, juce::Rectangle<float> (drawSize.x, drawSize.y).withCentre (centre));
+        };
+
+        drawTube (ventLBankCentre1x, -tubeGlowInstanceXOffset1x, 0.0f);
+        drawTube (ventLBankCentre1x, tubeGlowInstanceXOffset1x, 1.0f);
+        drawTube (ventRBankCentre1x, -tubeGlowInstanceXOffset1x, 2.0f);
+        drawTube (ventRBankCentre1x, tubeGlowInstanceXOffset1x, 3.0f);
+    }
+
+    // 4. Rose emblem, centred between the two VU dials.
+    if (roseEmblemImage.isValid())
+    {
+        const auto canvasDrawSize = s ((float) roseDiameter1x) / roseContentDiameterFraction;
+        g.drawImage (roseEmblemImage,
+                    juce::Rectangle<float> (canvasDrawSize, canvasDrawSize).withCentre (toPlatePointF (roseCentre1x)));
+    }
+
+    // (VU dial faces/needles/LEDs, the knobs, and the toggles are all
+    // separate child Components, drawn after this method returns - see
+    // resized() for their bounds.)
+
+    // 5. Four corner screws, drawn LAST so they sit on top of everything
+    // else that might overlap their (tiny) corner footprint.
+    if (screwImage.isValid())
+    {
+        const auto canvasDrawSize = s ((float) screwDiameter1x) / screwContentDiameterFraction;
+
+        for (const auto& centre1x : screwCentres1x)
+            g.drawImage (screwImage,
+                        juce::Rectangle<float> (canvasDrawSize, canvasDrawSize).withCentre (toPlatePointF (centre1x)));
+    }
 }
 
 void SilentiumAudioProcessorEditor::resized()
@@ -302,29 +362,22 @@ void SilentiumAudioProcessorEditor::resized()
     // Everything below is expressed in plate-local coordinates (the base
     // @1x table in PluginEditorLayout.h), then offset by the top strip +
     // gap and scaled.
-    //
-    // Each AnalogMeter's bounds are a square CENTRED EXACTLY ON ITS PIVOT
-    // (the baked hub rivet in the master render) - see
-    // PluginEditorLayout.h's meterHalfSize1x/meterLPivot1x/meterRPivot1x and
-    // AnalogMeter.h's "meter_component_convention" docs. This is what makes
-    // the needle's pivot fraction always (0.5, 0.5) regardless of which
-    // meter.
     const auto toPlatePoint = [&] (juce::Point<int> plateLocal)
     {
         return juce::Point<int> (s (plateLocal.x),
                                  s (topStripHeight1x + topStripGap1x) + s (plateLocal.y));
     };
 
-    const auto meterHalf = s (meterHalfSize1x);
-    gainReductionMeter.setBounds (juce::Rectangle<int> (meterHalf * 2, meterHalf * 2).withCentre (toPlatePoint (meterLPivot1x)));
-    inputLevelMeter.setBounds (juce::Rectangle<int> (meterHalf * 2, meterHalf * 2).withCentre (toPlatePoint (meterRPivot1x)));
+    // Each AnalogMeter's bounds are the exact box its face asset is drawn
+    // into (see PluginEditorLayout.h's meterComponentSize1x/meterLTopLeft1x/
+    // meterRTopLeft1x docs) - NOT centred on the needle pivot, unlike
+    // v0.3.2's convention (the fresh face asset's own hub isn't at its
+    // canvas centre, see AnalogMeter.h's docs).
+    const auto meterSize = s (meterComponentSize1x);
+    gainReductionMeter.setBounds (toPlatePoint (meterLTopLeft1x).x, toPlatePoint (meterLTopLeft1x).y, meterSize, meterSize);
+    inputLevelMeter.setBounds (toPlatePoint (meterRTopLeft1x).x, toPlatePoint (meterRTopLeft1x).y, meterSize, meterSize);
 
-    // Knobs: explicit STAGGERED centres baked into the master render (row 2
-    // offset ~half a cell right of row 1) - see PluginEditorLayout.h's
-    // knobRow1X1x/knobRow2X1x. The interactive FilmstripKnob is sized
-    // identically to the baked knob's own diameter (knobDiameter1x,
-    // measured from faceplate-metadata.json) so it exactly covers the baked
-    // art underneath with no visible seam/mismatch.
+    // Knobs: explicit STAGGERED centres baked into the master render.
     const auto knobDiam = s (knobDiameter1x);
 
     for (size_t i = 0; i < knobLayout.size(); ++i)
@@ -334,8 +387,7 @@ void SilentiumAudioProcessorEditor::resized()
                                         .withCentre (toPlatePoint ({ entry.centreX1x, entry.centreY1x })));
     }
 
-    // Two footer toggles (Duck, Listen), explicit centres, sized identically
-    // to the baked housing (toggleSize1x).
+    // Two footer toggles (Duck, Listen).
     const auto toggleSize = s (toggleSize1x);
 
     for (size_t i = 0; i < toggleLayout.size(); ++i)
@@ -343,10 +395,23 @@ void SilentiumAudioProcessorEditor::resized()
         toggles[i].button->setBounds (juce::Rectangle<int> (toggleSize, toggleSize)
                                           .withCentre (toPlatePoint ({ toggleX1x[i], toggleY1x })));
     }
+
+    // Tube-vent glow repaint region: a generous rectangle spanning both
+    // banks' two instances plus the draw size, so timerCallback()'s
+    // per-tick repaint() call only invalidates this area rather than the
+    // whole plate.
+    const auto ventPad = juce::jmax (s (tubeGlowDrawWidth1x), s (tubeGlowDrawHeight1x)) / 2 + s (4);
+    const auto ventL = toPlatePoint (ventLBankCentre1x);
+    const auto ventR = toPlatePoint (ventRBankCentre1x);
+    ventGlowRepaintBounds = juce::Rectangle<int> (ventL, juce::Point<int> (1, 1))
+                                .getUnion (juce::Rectangle<int> (ventR, juce::Point<int> (1, 1)))
+                                .expanded (ventPad + s (tubeGlowInstanceXOffset1x));
 }
 
 void SilentiumAudioProcessorEditor::timerCallback()
 {
     gainReductionMeter.setTargetDb (audioProcessor.getGainReductionDb());
     inputLevelMeter.setTargetDb (audioProcessor.getInputLevelDb());
+
+    repaint (ventGlowRepaintBounds);
 }

@@ -1,4 +1,5 @@
 #include "AnalogMeter.h"
+#include "Flicker.h"
 
 #include <cmath>
 
@@ -7,15 +8,16 @@ namespace
     // Copied verbatim from
     // .scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json's
     // per-meter "dB_angle_table_deg" (both meters share this same relative
-    // table - see that file's "_provenance" notes: measured directly on
-    // master-03-raw.png via polar-unwrap + fine pixel-grid cross-validation
-    // for the -20dB/0dB anchors, with the -20 and 0 tick radii from the
-    // pivot matching to within 0.1px as the confidence check; the remaining
-    // seven ticks are proportionally rescaled from the previous vu-nano-v1
-    // asset's reference table, scale factor 0.800, since a clean independent
-    // re-measurement of every intermediate tick was not achievable at this
-    // render's resolution). NOT interchangeable with vu-nano-v1's old table
-    // - this master render's arc sits at measurably different angles.
+    // table). Measured against the master-03 generation render's own baked
+    // needle; NOT re-derived against the fresh vu-face-v4.png asset
+    // (v0.3.3) - the brief's own provenance note for that asset states it
+    // "matches master's VU exactly", and this table is expressed purely as
+    // ANGLES (not pixel radii), which is scale/generation-independent as
+    // long as the tick layout's angular design didn't change between
+    // renders. Flagged here as an ASSUMPTION, not an independently
+    // re-verified measurement - see this revision's handoff notes for the
+    // visual check that was actually performed (the needle track close to
+    // but not pixel-perfect on top of the ticks in the rendered preview).
     struct Tick
     {
         float db;
@@ -31,8 +33,11 @@ namespace
 
 namespace basilica::gui
 {
-    AnalogMeter::AnalogMeter (Assets assetsIn, juce::String accessibleTitle, float flickerSeedIn)
-        : assets (std::move (assetsIn)), title (std::move (accessibleTitle)), flickerPhaseSeed (flickerSeedIn)
+    AnalogMeter::AnalogMeter (Assets assetsIn, juce::String accessibleTitle, float flickerSeedIn,
+                              float pivotXFractionIn, float pivotYFractionIn)
+        : assets (std::move (assetsIn)), title (std::move (accessibleTitle)),
+          pivotXFraction (pivotXFractionIn), pivotYFraction (pivotYFractionIn),
+          flickerPhaseSeed (flickerSeedIn)
     {
         setTitle (title);
         setDescription (title);
@@ -41,14 +46,6 @@ namespace basilica::gui
         // sit under this component's (partly transparent) bounds.
         setInterceptsMouseClicks (false, false);
 
-        // Both layers this component still draws (the incandescent glow
-        // gradient and the needle) are cheap to re-rasterise every frame at
-        // this component's small on-screen size, and the glow's flicker
-        // needs to repaint continuously - a cached StandardCachedComponentImage
-        // (setBufferedToImage) would just be invalidated on nearly every
-        // timer tick anyway, so it is not used here (unlike the old
-        // face+needle version, which had a large static face layer worth
-        // caching).
         startTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
         startTimerHz ((int) timerHz);
@@ -94,27 +91,56 @@ namespace basilica::gui
     float AnalogMeter::currentFlickerMultiplier() const noexcept
     {
         const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-        const auto t = (float) (now - startTimeSeconds);
+        return basilica::gui::flickerMultiplier (now, startTimeSeconds, flickerPhaseSeed, flickerAmplitudeFraction);
+    }
 
-        float sum = 0.0f;
+    void AnalogMeter::setImmediateDbForPreview (float db) noexcept
+    {
+        targetDb.store (db, std::memory_order_relaxed);
+        smoothedDb = db;
 
-        for (size_t i = 0; i < flickerFrequenciesHz.size(); ++i)
+        if (db >= peakLedThresholdDb)
         {
-            const auto phase = flickerPhaseSeed * 3.7f + (float) i * 2.1f;
-            sum += flickerWeights[i] * std::sin (juce::MathConstants<float>::twoPi * flickerFrequenciesHz[i] * t + phase);
+            ledHoldRemainingSeconds = ledHoldSeconds;
+            ledAlpha = 1.0f;
+        }
+        else
+        {
+            ledHoldRemainingSeconds = 0.0f;
+            ledAlpha = 0.0f;
         }
 
-        // flickerWeights sum to 1.0, so sum is already normalised to [-1, 1].
-        return 1.0f + flickerAmplitudeFraction * sum;
+        repaint();
     }
 
     void AnalogMeter::timerCallback()
     {
         const auto target = targetDb.load (std::memory_order_relaxed);
-        const auto next = stepBallistics (smoothedDb, target, 1.0f / (float) timerHz, ballisticsTauSeconds);
+        const auto dt = 1.0f / (float) timerHz;
 
+        const auto next = stepBallistics (smoothedDb, target, dt, ballisticsTauSeconds);
         const auto dbChanged = ! juce::approximatelyEqual (next, smoothedDb);
         smoothedDb = next;
+
+        // Peak-LED state machine (Yves' brief): full alpha while the RAW
+        // (unsmoothed) reading is at/above 0dB and for a further 200ms hold
+        // once it drops back below, then a 500ms linear fade to fully off -
+        // driven from the instantaneous target, not the ballistic-smoothed
+        // dial reading, matching a real peak LED's fast response.
+        if (target >= peakLedThresholdDb)
+        {
+            ledHoldRemainingSeconds = ledHoldSeconds;
+            ledAlpha = 1.0f;
+        }
+        else if (ledHoldRemainingSeconds > 0.0f)
+        {
+            ledHoldRemainingSeconds -= dt;
+            ledAlpha = 1.0f;
+        }
+        else if (ledAlpha > 0.0f)
+        {
+            ledAlpha = juce::jmax (0.0f, ledAlpha - dt / ledFadeSeconds);
+        }
 
         // The incandescent glow's flicker needs continuous repaints even
         // when the dB reading is stable - skip entirely when not on screen
@@ -132,10 +158,10 @@ namespace basilica::gui
 
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
 
-        // Optional face draw - skipped when invalid (Silentium's usage
-        // always leaves this default, see Assets' docs), kept only so this
-        // reusable component still works stand-alone/in tests without a
-        // baked background behind it.
+        // 1. Dial face (ticks, "VU" wordmark, red zone, hub/anchor bar) -
+        // fills the whole component, which PluginEditor.cpp has already
+        // sized/positioned so this lands the face's own bezel on the
+        // plate's dial void.
         if (assets.face.isValid())
             g.drawImage (assets.face, bounds);
 
@@ -143,8 +169,8 @@ namespace basilica::gui
         const auto pivotY = bounds.getHeight() * pivotYFraction;
         const auto halfSize = 0.5f * juce::jmin (bounds.getWidth(), bounds.getHeight());
 
-        // Incandescent pilot-lamp glow - drawn UNDER the needle, matching a
-        // grain-of-wheat pilot lamp sitting behind the dial just above the
+        // 2. Incandescent pilot-lamp glow - drawn UNDER the needle, matching
+        // a grain-of-wheat pilot lamp sitting behind the dial just above the
         // hub. Flicker gently modulates both alpha stops in lockstep (a
         // single scalar multiplier keeps the two-stop gradient's relative
         // shape constant while its overall brightness breathes).
@@ -167,20 +193,46 @@ namespace basilica::gui
             g.fillRect (bounds);
         }
 
+        // 3. Peak LED (upper-left of the dial) - alpha-animated by the
+        // peak-hold/fade state machine in timerCallback(), fully skipped
+        // (no draw call at all) when its alpha is at/near zero so the
+        // asset's own baked halo never leaves a faint always-on ring.
+        if (assets.led.isValid() && ledAlpha > 0.001f)
+        {
+            const auto ledCx = pivotX + ledCentreOffsetXFraction * halfSize;
+            const auto ledCy = pivotY + ledCentreOffsetYFraction * halfSize;
+            const auto ledDrawSize = ledDiameterFraction * (2.0f * halfSize) / ledContentDiameterFraction;
+
+            juce::Graphics::ScopedSaveState saveState (g);
+            g.setOpacity (ledAlpha);
+            g.drawImage (assets.led,
+                        juce::Rectangle<float> (ledDrawSize, ledDrawSize).withCentre ({ ledCx, ledCy }));
+        }
+
+        // 4. Rotating needle.
         if (assets.needle.isValid())
         {
-            const auto sx = bounds.getWidth() / (float) assets.needle.getWidth();
-            const auto sy = bounds.getHeight() / (float) assets.needle.getHeight();
+            const auto needleDrawSize = needleSizeFraction * juce::jmin (bounds.getWidth(), bounds.getHeight());
+            const auto sx = needleDrawSize / (float) assets.needle.getWidth();
+            const auto sy = needleDrawSize / (float) assets.needle.getHeight();
 
             // The needle asset is rendered at rest pointing straight up
             // (0 deg) with its own pivot dead-centre on its square canvas -
             // the measured tick angle IS the absolute rotation, no
-            // rest-angle delta to subtract.
+            // rest-angle delta to subtract. drawImageTransformed scales
+            // from the image's own (0,0) origin, so translate the pivot to
+            // the origin first, scale/rotate, then translate back out to
+            // this component's actual pivot position.
             const auto targetDeg = tickAngleDegreesForDb (smoothedDb);
             const auto radians = juce::degreesToRadians (targetDeg);
 
-            const auto transform = juce::AffineTransform::scale (sx, sy)
-                                        .rotated (radians, pivotX, pivotY);
+            const auto imageHalfW = (float) assets.needle.getWidth() * 0.5f;
+            const auto imageHalfH = (float) assets.needle.getHeight() * 0.5f;
+
+            const auto transform = juce::AffineTransform::translation (-imageHalfW, -imageHalfH)
+                                        .scaled (sx, sy)
+                                        .rotated (radians)
+                                        .translated (pivotX, pivotY);
 
             g.drawImageTransformed (assets.needle, transform);
         }
