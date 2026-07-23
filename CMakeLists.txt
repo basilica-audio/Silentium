@@ -76,34 +76,84 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     presets/factory/duckUnderLead.json
     presets/factory/listenCheck.json
     resources/i18n/de.txt
-    # v0.3.1 photoreal GUI assets (resources/gui/, copied from the suite's
-    # Blender pre-render pipeline at .scaffold/gui-assets/ - see each asset
-    # family's README there for provenance/verification). The repo is
-    # self-contained: these copies are the ones the plugin ships with.
-    resources/gui/knob_brass_v2_strip_160px_128f.png
-    resources/gui/knob_brass_v2_strip_320px_128f.png
-    resources/gui/toggle_brass_v2_strip_40px_4f.png
-    resources/gui/toggle_brass_v2_strip_80px_4f.png
-    resources/gui/vu_dome_face_200x200.png
-    resources/gui/vu_dome_face_400x400.png
-    resources/gui/vu_dome_needle_200x200.png
-    resources/gui/vu_dome_needle_400x400.png
-    resources/gui/vu_dome_glass_200x200.png
-    resources/gui/vu_dome_glass_400x400.png
+    # Preset-bar / scale-button brass caps (unrelated to the faceplate
+    # rework below - BasilicaLookAndFeel.cpp::drawButtonBackground() 3-slices
+    # these for every juce::TextButton the suite draws, e.g. the preset bar's
+    # navigation buttons and this editor's scale-cycle button). Deliberately
+    # OUT OF SCOPE for the master-05 baseline revision (BasilicaLookAndFeel.{h,cpp}
+    # is not in that revision's file whitelist) - kept embedded even though
+    # an earlier draft of this revision's asset-removal list named them
+    # alongside the (genuinely unrelated) toggle_brass_v2_strip_* footer-
+    # toggle asset family; removing them would break BasilicaLookAndFeel.cpp's
+    # compile.
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png
     resources/gui/button_brass_v1_hover_80x56.png
-    resources/gui/faceplate_silentium_v2_900x600.png
-    resources/gui/faceplate_silentium_v2_1800x1200.png
+    # v0.3.4 MASTER-05 BASELINE ARCHITECTURE (this revision) - a full
+    # replacement of the three prior "component composition" GUI attempts
+    # (v0.3.1's bare JUCE-drawn background, v0.3.2's single-master
+    # faceplate, v0.3.3's true component assembly of many standalone
+    # master-reference PNGs), per Yves' explicit rejection of that
+    # Frankenstein result. Exactly THREE faceplate images now ship, copied
+    # from .scaffold/gui-assets/faceplate-silentium-v3/ (repo-relative to
+    # the suite root, one level above this repo):
+    #   - master-05.png: the SOLE faceplate baseline. Bakes the obsidian
+    #     plate, brass bevel, 4 corner screws, rose flourish, both VU dial
+    #     faces (empty - no needle, no LED), all 9 knobs at 12 o'clock rest,
+    #     both toggles UP/on, and both tube-vent grilles at normal glow -
+    #     ALL of it, in one image. PluginEditor.cpp draws only this for the
+    #     entire plate when every toggle is on and the vent-glow mix is at
+    #     its ceiling.
+    #   - master-06.png: identical to master-05 except both toggles point
+    #     DOWN. PluginEditor.cpp blits ONLY a toggle's own small zone crop
+    #     from this image (never the full plate) when that toggle is off.
+    #   - master-glow-dim.png: identical to master-05 except the tube-vent
+    #     glow is at a SUBTLE, dimmer intensity. PluginEditor.cpp
+    #     cross-blends ONLY the two vent-bank region crops between this
+    #     image (low signal) and master-05 itself (the approved ceiling -
+    #     never a third, brighter "hot" frame; master-glow-hot.png/
+    #     master-glow-very-hot.png exist in the scaffold but are
+    #     DELIBERATELY NOT embedded - Yves rejected that look verbatim, see
+    #     PluginEditor.cpp's paint() docs).
+    # PluginEditorLayout.h's geometry table was re-measured directly against
+    # master-05.png by
+    # .scaffold/gui-assets/faceplate-silentium-v3/analysis/measure_master_05.py
+    # (NOT copied from the v0.3.3/master-04 table - a different render
+    # generation).
+    resources/gui/master-05.png
+    resources/gui/master-06.png
+    resources/gui/master-glow-dim.png
+    # Rotating VU needle overlay - v0.3.5 replaces the single-image
+    # AffineTransform-rotated needle (vu-needle-master-v3.png, still on disk
+    # but no longer embedded) with a pre-rendered FILMSTRIP: a vertical
+    # stack of 96 already-rotated 480x480 frames (-32.0deg..+44.0deg,
+    # 0.8deg/frame, rest/0deg = frame 40), each with its pivot at the
+    # frame's exact centre. AnalogMeter::paint() now does a frame-index
+    # lookup + straight source-rect blit instead of a live rotation - see
+    # AnalogMeter.cpp's docs for the manifest constants (hardcoded there,
+    # not parsed from resources/gui/needle-filmstrip-v1.json at runtime;
+    # that .json ships alongside the PNG purely for provenance).
+    resources/gui/needle-filmstrip-v1.png
+    # Peak-LED overlay - v0.3.6 replaces led-v4.png (a hand-authored/
+    # generated asset, drawn INSIDE the dial over the tick scale - wrong
+    # position AND provenance per Yves' master-03 reference) with
+    # led-master-diff.png: a clean 64x64 RGBA sprite EXTRACTED directly from
+    # master-03-raw.png's own baked lit LED pixels (master-03 is the one
+    # master render generation with both LEDs lit; master-05, this build's
+    # faceplate baseline, has neither) via a registration + abs-diff
+    # technique (analysis/led_diff/{register,extract,finalize}.py in the
+    # gui-pipeline scratch dir, mirroring analysis/needle_diff/'s proven
+    # needle-extraction approach) - no hand-drawing/generation involved, per
+    # the suite's master-fidelity rule. led-v4.png stays on disk
+    # (unreferenced) rather than being deleted here. Drawn by PluginEditor
+    # (not AnalogMeter - the LED sits on the PLATE outside each dial's own
+    # bezel, see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs).
+    resources/gui/led-master-diff.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
-    # for every JUCE-drawn text surface - the same family the faceplate's
-    # engraved labels are set in (see BasilicaLookAndFeel.h).
+    # for every JUCE-drawn text surface.
     resources/fonts/EBGaramond-Regular.ttf
     resources/fonts/EBGaramond-SemiBold.ttf
-    # Brand icon (already the plugin's ICON_BIG; embedded here additionally
-    # so the editor can draw it in the faceplate's header roundel).
-    docs/assets/icon-256.png
 )
 
 # ==============================================================================

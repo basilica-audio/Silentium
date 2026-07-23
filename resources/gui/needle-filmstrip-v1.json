@@ -1,0 +1,12 @@
+{
+  "frameCount": 96,
+  "frameW": 480,
+  "frameH": 480,
+  "minDeg": -32.0,
+  "maxDeg": 44.0,
+  "degPerFrame": 0.8,
+  "hubXFrac": 0.5,
+  "hubYFrac": 0.5,
+  "layout": "vertical",
+  "restFrameIndex": 40
+}
