@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-27
+
+Silentium becomes a gate *and* a downward expander, opens without a click even
+at 0 ms attack, and can be reconfigured live. Every existing session, preset
+and rendered mix is unaffected: all six new controls default to the value that
+reproduces v0.3.x exactly, and that is verified against renders captured from
+an actual v0.3.0 build rather than asserted.
+
+### Added
+
+- **Ratio** (`ratio`, 1:1 to 20:1, default 20:1 displayed "∞ : 1 (Gate)") - a continuous downward-expander law between Threshold and Range, with hard and soft knee (the soft branch is continuous in value *and* slope at both knee edges, so widening Knee never introduces a corner). At the top of the range the gain computer takes the literal pre-v0.4.0 binary path, which is what makes the default neutral by construction rather than by numerical coincidence. Measured: the applied gain follows (Ratio − 1) dB per dB below Threshold to within 0.25 dB at 2:1, 4:1 and 8:1, and matches the closed-form law across the whole knee band to within 0.35 dB.
+- **Hysteresis** (`hysteresis`, 0-12 dB, default 3 dB) - the open/close threshold gap, previously a fixed internal 3 dB constant. Measured: the gap between the opening and closing levels tracks the setting to within 1 dB at 0, 3, 6 and 12 dB.
+- **Detector** (`detector`, Peak/RMS, default Peak) - a 5 ms mean-square window as an alternative to the peak follower, weighing brief excursions by the energy they actually carry. Measured: on material carrying isolated single-sample spikes over a quiet bed, the peak detector opens the gate 99 times in a second where RMS opens it not at all. Switching crossfades over 5 ms.
+- **SC Slope** (`scSlope`, 12/24 dB/oct, default 12) - a Butterworth-Q-paired second section for both sidechain filters. Measured: 12.30 dB and 24.11 dB of rejection one octave below the high-pass cutoff (theory: 12.3 and 24.1). Switching crossfades over 10 ms.
+- **Smooth Open** (`smoothOpen`, default off) - a moving-max plus cascaded-box smoother that shapes the opening gain trajectory inside the existing lookahead window, so a 0 ms attack opens along a continuous ramp instead of a single-sample step. Measured: the steepest step falls from 59.5 dB/sample to 0.50 dB/sample - a 119x reduction, and within 0.01 % of the triangular kernel's theoretical 2·Range/N peak - while the gate still reaches full opening exactly as the delayed transient leaves the delay line. Adds no latency at any Lookahead setting.
+- **Release Shape** (`releaseShape`, Exponential/Linear, default Exponential) - a constant-dB/s close as an alternative to the program-dependent exponential approach. Measured: 600.03 dB/s against a specified 600 dB/s, with a straight-line fit of R² = 1.000 (the exponential shape fits a line at R² = 0.916).
+- **Gain-reduction telemetry** - the deepest and shallowest gain applied *inside* each block (the previous block-boundary value alone hides a complete open-and-close cycle at large block sizes), plus a preallocated lock-free single-producer/single-consumer history ring that refuses to overwrite unread entries rather than silently corrupting a stalled consumer's view. No display consumes it yet; it ships tested so that work is a pure addition.
+- **`presets/factory/expanderGlue.json`** ("Expander Glue") - a gentle finite-ratio expander: 2.5:1, RMS detection, linear release and a shallow -18 dB floor, for cleaning up amp noise without anything sounding gated.
+- **`tests/data/`** - cross-version golden renders captured from the v0.3.0 engine, with `tests/data/README.md` documenting their provenance, the two-tier comparison, and the regeneration policy. These are what make this release's neutrality claim evidence rather than an assertion.
+
+### Changed
+
+- **Lookahead now applies live.** Moving it takes effect immediately - the delay crossfades equal-power to its new length over 10 ms and the new latency is reported to the host shortly after - instead of waiting for the host to re-prepare the plugin. `setLatencySamples()` is still only ever called from the message thread; the audio thread's entire contribution is one relaxed atomic store, so `processBlock()` remains allocation-free even on the block where the lookahead moves.
+- **Saved state carries a schema version** (`stateVersion="2"` on the root element). A state without the attribute is treated as schema 1 and needs no transform, because every new parameter defaults to its neutral value. The version switch exists so a future schema change has a tested seam.
+- **Chug Lock** gains Smooth Open. It is a 0 ms-attack preset, which is exactly the case Smooth Open exists for. This is the only deliberate voicing change in this release.
+- CMake project version bumped to 0.4.0.
+- Test suite grew from 87 to 114 Catch2 cases (9156 assertions).
+
+### Not included
+
+- **Program-adaptive auto-release** was specified for this release and is **not** implemented. The mechanism as designed sits close enough to an in-force patent (US 11,641,183) that shipping it needs a decision the project has not taken: a claim-by-claim clearance by qualified patent counsel, a written acceptance of the risk, or a replacement built on documented pre-existing dual-time-constant art. No parameter ID was reserved for it, because shipping a dead control into a frozen ID contract is worse than adding one later. `presets/factory/adaptiveTail.json` and the auto-release half of the planned Chug Lock re-voicing are deferred with it.
+- **Surgical Mute was not re-voiced.** Smooth Open shapes the closing edge as well as the opening one - the moving-max window holds the open target for up to half the Lookahead time after the signal falls away, and the box cascade then spreads the close - which measurably cost that preset the "quieter between notes than Natural Decay" guarantee it exists to provide. It keeps its v0.3.x voicing; the trade-off is documented in the manual.
+- The six new parameters are **fully wired and host-automatable but have no controls in the custom editor yet.** They are visible and editable in any host's generic parameter view. Adding them to the photoreal editor is a follow-up, kept separate so this release touches no GUI code at all.
+
 ## [0.3.0] - 2026-07-17
 
 ### Added
