@@ -153,62 +153,68 @@ namespace slnt::layout
     // master-05, unlike roseCentre1x's thin flourish line above). Sits
     // centred in the empty plate gap between the two VU dial bezels.
     //
-    // X: exactly midway between the two meter component centres -
-    // meterL centre x = meterLTopLeft1x.x + meterComponentSize1x/2 = 228.5,
-    // meterR centre x = meterRTopLeft1x.x + meterComponentSize1x/2 = 670.5,
-    // midpoint = 449.5, rounded to 450.
-    // Y: placed, then verified, against a fresh render of the dial region
-    // (see build/org-emblem-zoom.png) so the medallion sits balanced in the
-    // dark plate gap between the two bezels without touching either or
-    // fouling the plate's diagonal glossy reflection sheen.
-    // orgEmblemDiameter1x (105) is its own independently-chosen circular
-    // draw size (the size class of the master-04 generation's now-unused
-    // rose-emblem-v4.png overlay) - unrelated to roseDiameter1x (150) above,
-    // which is a bounding-box WIDTH for a thin flourish line, not a
-    // like-for-like circular medallion measurement.
-    //
-    // Source asset provenance: resources/gui/org-emblem.png is extracted
-    // (never hand-authored) from brand/v2-plastic/raw/org.png (repo-relative
-    // to the suite root, one level above this repo) - the Basilica Audio
-    // org-level rose-window emblem shared across the whole plugin suite.
-    // That source is a 1024x1024 RGB render: a gold/bronze rose-window
-    // medallion mounted on an opaque black rounded-square (squircle) plate,
-    // NOT already circularly cut out (brand/v2-plastic/cut/org.png, the
-    // suite's usual pre-cut app-icon export, was rejected for this purpose
-    // for exactly that reason - it carries the same squircle backing, see
-    // this revision's handoff notes). Extraction: (1) circle-fit the
-    // medallion's own OUTER gold-ring edge - Kasa least-squares fit on
-    // ray-cast edge points (outward scan per angle for the last strong
-    // gold->background transition), centre (510.0, 517.0), radius 337.0 px
-    // in the source's own 1024x1024 canvas, verified against multiple
-    // independent zoomed crops; (2) cut a circular disc at that radius
-    // (~1px feather); (3) colour-threshold INSIDE the disc (gold/warm pixels
-    // opaque, the dark tracery openwork holes AND the surrounding squircle
-    // mounting plate transparent) so the Silentium faceplate itself shows
-    // through the medallion's own pierced tracery once mounted - exactly
-    // mirroring how the master-04 generation's rose-emblem-v4.png was itself
-    // built (colour-thresholded gold vs that source's dark squircle
-    // mounting plate; see that asset's own near-binary alpha histogram). A
-    // fully-opaque-disc-interior variant was also produced and compared
-    // side by side; the colour-thresholded variant was chosen both for this
-    // precedent-consistency and because it reads as more physically mounted
-    // (the openwork actually shows plate through it) at the ~105px final
-    // draw size. Ray-cast circularity check on the final cutout: outer
-    // radius std/mean ~=0.3% across 180 sampled angles (334-338px range,
-    // mean 335.7px) - the same control-check convention used to confirm
-    // rose-emblem-v4.png's own circularity (std/mean ~=1.5%).
+    // v0.3.11: source asset REPLACED - the v0.3.8 org-emblem.png was a
+    // generic rose-window medallion with no guitar silhouette, not actually
+    // the Basilica Audio mark (Yves: "Das Logo in der Mitte fehlt", even
+    // though a medallion WAS being drawn there - it was simply the wrong
+    // one). resources/gui/org-emblem-basilica-v1.png is extracted (never
+    // hand-authored) directly from the suite's canonical brand/org.png
+    // (repo-relative to the suite root, one level above this repo) - the
+    // same 1024x1024 render every other plugin's app icon is cut from.
+    // Unlike the old source, brand/org.png is ALREADY circular artwork on a
+    // flat near-black square canvas (no squircle mounting plate to work
+    // around). Extraction: (1) circle-fit the medallion's own outer gold-
+    // ring edge - Kasa least-squares fit on 720 ray-cast edge points,
+    // centre (511.58, 512.55), radius 390.87px in the source's own
+    // 1024x1024 canvas (std/mean 0.15% across all 720 angles - tighter
+    // than the old asset's own 0.3% circularity check); (2) a colour-
+    // threshold alpha (near-black background/tracery-hole pixels ->
+    // transparent, gold linework -> opaque, ~1px feather) intersected with
+    // (3) a hard circular cutoff at the fitted radius, so the emblem stays
+    // genuinely round with no added bezel/ring/frame of any kind (an
+    // explicit standing user rule - see PluginEditor.cpp's paint() docs for
+    // the restrained-opacity + soft-shadow-only mounting treatment that
+    // respects it) and the Silentium faceplate shows through the pierced
+    // tracery once mounted, same visual convention the old asset used.
     // orgEmblemContentDiameterFraction is the visible medallion's own
-    // diameter as a fraction of org-emblem.png's full 1024px canvas
-    // (672/1024) - PluginEditor.cpp's ledContentDiameterFraction/
-    // ledImageDrawSize1x pair for the peak-LED sprite uses the identical
-    // back-derivation convention (canvas content fraction -> draw size that
-    // lands the VISIBLE content, not the full image, at the nominal on-plate
-    // diameter); this constant lives here (rather than alongside the LED's
-    // own pair in PluginEditor.cpp's anonymous namespace) purely because the
-    // org emblem's other two geometry constants belong here.
-    const juce::Point<float> orgEmblemCentre1x { 450.0f, 227.5f };
-    constexpr float orgEmblemDiameter1x = 105.0f;
-    constexpr float orgEmblemContentDiameterFraction = 672.0f / 1024.0f;
+    // diameter as a fraction of org-emblem-basilica-v1.png's full 1024px
+    // canvas (781.73/1024 = 2*390.87/1024) - PluginEditor.cpp's
+    // ledImageDrawSize1x uses a DIFFERENT convention for the (separately
+    // re-measured) LED sprite, which is a native 1:1 master-px crop rather
+    // than an independently-rendered icon; this fraction lives here
+    // (rather than alongside the LED's own constant in PluginEditor.cpp's
+    // anonymous namespace) purely because the org emblem's other geometry
+    // constants belong here.
+    //
+    // orgEmblem below is the SINGLE geometry knob for this element (Yves
+    // has not yet signed off on it) - centre1x/diameter1x are the only two
+    // numbers to touch to retune its position/size; every other org-emblem
+    // constant in this file is either fixed asset provenance or derives
+    // from these two.
+    struct OrgEmblemGeometry
+    {
+        // X: exactly midway between the two meter component centres -
+        // meterL centre x = meterLTopLeft1x.x + meterComponentSize1x/2 =
+        // 228.5, meterR centre x = meterRTopLeft1x.x + meterComponentSize1x/2
+        // = 670.5, midpoint = 449.5, rounded to 450.
+        // Y: placed, then verified, against a fresh render of the dial
+        // region (see build/org-emblem-zoom.png) so the medallion sits
+        // balanced in the dark plate gap between the two bezels without
+        // touching either or fouling the plate's diagonal glossy
+        // reflection sheen.
+        juce::Point<float> centre1x;
+
+        // Independently-chosen circular draw size (the size class of the
+        // master-04 generation's now-unused rose-emblem-v4.png overlay) -
+        // unrelated to roseDiameter1x (150) above, which is a bounding-box
+        // WIDTH for a thin flourish line, not a like-for-like circular
+        // medallion measurement. Leaves ~41px clearance on each side of the
+        // ~187px-wide plate gap between the two meter bays at this size.
+        float diameter1x;
+    };
+
+    const OrgEmblemGeometry orgEmblem { { 450.0f, 227.5f }, 105.0f };
+    constexpr float orgEmblemContentDiameterFraction = 781.732f / 1024.0f;
 
     // Four corner screws - BAKED into master-05, no draw call. Kept for the
     // same reason as roseCentre1x/roseDiameter1x above.
@@ -240,15 +246,19 @@ namespace slnt::layout
     const juce::Rectangle<int> ventLBankBounds1x { 106, 355, 214 - 106, 487 - 355 };
     const juce::Rectangle<int> ventRBankBounds1x { 686, 355, 794 - 686, 487 - 355 };
 
-    // Peak LEDs: a SMALL red indicator lamp sitting ON THE PLATE, OUTSIDE
-    // each VU dial's brass bezel, at its upper-left - NOT inside the dial
-    // face (a prior revision incorrectly drew a large LED inside the dial,
-    // over the tick scale; rejected by Yves against master-03's own
-    // reference look). This is why these live here as their own top-level
-    // overlay geometry rather than inside AnalogMeter's own bounds (which
-    // only cover the dial face itself, see PluginEditor.cpp's paint() for
-    // the draw call).
+    // Peak LEDs: a SMALL red indicator lamp sitting ON THE PLATE, at the TOP
+    // of each VU dial's brass bezel - NOT inside the dial face (a prior
+    // revision incorrectly drew a large LED inside the dial, over the tick
+    // scale; rejected by Yves against master-03's own reference look) and
+    // NOT anywhere near the footer toggles either (v0.3.10's own measured
+    // centres put the LED visibly on top of one - Yves: "Diese PEAK LED ...
+    // merkwürdigerweise auf einem der Kippschalter"). This is why these
+    // live here as their own top-level overlay geometry rather than inside
+    // AnalogMeter's own bounds (which only cover the dial face itself, see
+    // PluginEditor.cpp's paint() for the draw call).
     //
+    // v0.3.11: RE-MEASURED (led-from-master.png/.json, superseding the
+    // v0.3.6 led-master-diff.png numbers this table previously held).
     // Measured DIRECTLY from master-03-raw.png (.scaffold/gui-assets/
     // faceplate-silentium-v3/master-03-raw.png, 1264x848 - the one master
     // render generation that happens to have BOTH peak LEDs lit; master-05,
@@ -257,29 +267,19 @@ namespace slnt::layout
     // master-05 per LED (small-window median-SSD sub-pixel search, mirroring
     // analysis/needle_diff/register.py's technique), abs-diff the two
     // (identical plate everywhere except the lit LED + its soft halo), then
-    // a diff-magnitude-weighted centroid (3 passes, each pass re-centring a
-    // circular ROI) for the centre and an azimuthal-mean radial profile for
-    // the core/halo diameters (see extraction_results.json for the raw
-    // numbers). Centres below are master-03's own measured centres scaled by
-    // plateWidth1x / masterCanvasWidthPx (900/1264, this file's own top-of-
-    // file scale factor) down to this @1x table; ledCoreDiameter1x is the
-    // bright bulb DISC only (radius where the azimuthal-mean diff magnitude
-    // first drops below half its peak value), NOT the much larger soft halo
-    // - the halo is left to overflow past this nominal draw diameter
-    // naturally via the led-master-diff.png asset's own alpha (see
-    // PluginEditor.cpp's ledContentDiameterFraction docs), matching the old
-    // AnalogMeter-owned LED's same convention.
-    //
-    // Both LEDs were independently measured (left core diameter 18.0 master
-    // px, right 19.0 master px - agree to within rounding); the LEFT LED is
-    // the one actually extracted into led-master-diff.png (analysis/
-    // led_diff/finalize.py), the right is used only as an appearance cross-
-    // check (see that revision's handoff notes) - both meters draw the SAME
-    // asset at these two independently-measured centres, per the suite's
-    // mirrored-duplicate dial design.
-    const juce::Point<float> ledLCentre1x { 121.93f, 109.87f };
-    const juce::Point<float> ledRCentre1x { 561.79f, 110.81f };
-    constexpr float ledCoreDiameter1x = 12.82f;
+    // a diff-magnitude-weighted centroid for the centre. Master-px centres:
+    // left (169.86260, 154.70570), right (789.69340, 153.86514) - BOTH
+    // measured directly and independently per dial (NOT the left LED's
+    // position transferred to the right dial via a dial-radius offset
+    // fraction; led-from-master.json's own offsetFractionTransferErrorPx
+    // field documents that transfer as unreliable, a 58px error on the
+    // right dial, since the two dials are not perfectly congruent in this
+    // render). Converted to this file's @1x table by the same
+    // plateWidth1x/masterCanvasWidthPx (900/1264) factor every other
+    // master-derived constant here uses - see PluginEditor.cpp's
+    // ledImageDrawSize1x for the matching sprite-canvas scale.
+    const juce::Point<float> ledLCentre1x { 120.9465f, 110.1544f };
+    const juce::Point<float> ledRCentre1x { 562.2817f, 109.5559f };
 
     constexpr int topStripHeight1x = 32;
     constexpr int topStripGap1x = 6;

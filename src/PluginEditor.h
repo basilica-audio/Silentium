@@ -172,8 +172,8 @@ private:
 
     // Org emblem (Basilica Audio rose-window medallion) - v0.3.8 addition,
     // drawn as its own overlay by this editor's paint() (see
-    // PluginEditorLayout.h's orgEmblemCentre1x/orgEmblemDiameter1x docs for
-    // placement/provenance). Not part of the master-05 baked render.
+    // PluginEditorLayout.h's orgEmblem docs for placement/provenance). Not
+    // part of the master-05 baked render.
     juce::Image orgEmblemImage;
 
     basilica::presets::PresetBar presetBar;

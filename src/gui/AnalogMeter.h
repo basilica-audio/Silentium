@@ -34,6 +34,22 @@
 // LED asset + draw call at the correct plate-level position (see
 // PluginEditorLayout.h's ledLCentre1x/ledRCentre1x), reading this
 // component's own ledAlpha via peakLedAlpha() each tick.
+//
+// v0.3.11: the needle is drawn from a SINGLE master-extracted sprite
+// (needle-from-master.png), rotated live via juce::AffineTransform, not a
+// pre-rendered 96-frame filmstrip - Yves rejected the filmstrip's own
+// source TWICE, both times because it had been modelled in Blender rather
+// than recovered from the approved master render ("Du sollst weder mit
+// Blender arbeiten noch sonst wie selbst was an der Nadel zeichnen. Die
+// soll exakt so aussehen wie auf dem Master."). See AnalogMeter.cpp's
+// bakedAngleDeg docs for why this sprite is rotated live instead of shipped
+// as pre-rotated frames (the extraction deliberately did NOT rotate the
+// sprite to a canonical "straight up" pose, since resampling would soften
+// the master's own pixels). The v0.3.7 hub-occluder redraw is gone too:
+// the new sprite's own alpha is already transparent within ~43 master px
+// of the pivot (its damping-ring occlusion boundary), wide enough that
+// master-05's own baked hub-cap/anchor-bar/boss art shows through
+// unmodified there without any separate overlay draw.
 namespace basilica::gui
 {
     class AnalogMeter : public juce::Component, private juce::Timer
@@ -41,23 +57,15 @@ namespace basilica::gui
     public:
         struct Assets
         {
-            // v0.3.5: holds the pre-rendered needle FILMSTRIP (a vertical
-            // stack of already-rotated frames), not a single needle image -
-            // see AnalogMeter.cpp's anonymous-namespace manifest constants
-            // and paint()'s frame-index lookup. Kept named "needle" (not
-            // renamed to e.g. needleStrip) to minimise churn at this call
-            // site's one caller (PluginEditor.cpp's makeMeterAssets()).
-            // v0.3.7: the frames carry the full through-pivot rod (blade +
-            // counterweight tail) - see the manifest docs in the .cpp.
+            // v0.3.11: a SINGLE master-extracted needle sprite
+            // (needle-from-master.png, 288x288 RGBA, pivot at its own exact
+            // canvas centre (0.5, 0.5)) - paint() rotates it live about
+            // that centre with a juce::AffineTransform. Replaces the
+            // v0.3.5-v0.3.7 pre-rotated 96-frame filmstrip (a Blender
+            // render, rejected - see this header's top-of-file docs) and
+            // its v0.3.7 hub-occluder companion image (no longer needed,
+            // see those same docs).
             juce::Image needle;
-
-            // v0.3.7: master-05's bar + cap-disc + boss-cylinder pixels,
-            // alpha-masked to that assembly's silhouette
-            // (vu-hub-occluder-v1.png) and drawn ON TOP of the needle
-            // frame by paint(), so the rod passes visually BEHIND the
-            // joint at every angle. May be left invalid (skips the draw -
-            // the rod then sits fully in front, the pre-v0.3.7 look).
-            juce::Image hubOccluder;
 
             // v0.3.6: the peak-LED IMAGE is no longer owned/drawn here - per
             // Yves' master-03 reference, the LED sits on the PLATE outside
@@ -195,14 +203,19 @@ namespace basilica::gui
         static constexpr float ledHoldSeconds = 0.2f;
         static constexpr float ledFadeSeconds = 0.5f;
 
-        // Needle draw size, as a fraction of the component's own full size
-        // - decoupled from the face-fit scale (unlike v0.3.2, where the
-        // needle was stretched to fill the WHOLE component because the
-        // component was deliberately sized to match the needle's own reach
-        // exactly). Tuned so the needle tip lands on the face asset's own
-        // tick arc (see PluginEditor.cpp's docs for the measurement this
-        // was derived from).
-        static constexpr float needleSizeFraction = 0.84f;
+        // v0.3.11: needle draw size, as a fraction of the component's own
+        // full size - derived (not hand-tuned) from the sprite's own native
+        // 288x288 master-px canvas scaled by the SAME master->@1x factor
+        // every other master-derived asset in this suite uses
+        // (plateWidth1x / masterCanvasWidthPx = 900/1264), then expressed
+        // as a fraction of AnalogMeter's own @1x component size
+        // (PluginEditorLayout.h's meterComponentSize1x = 255): 288 *
+        // (900/1264) / 255 = 0.804170 - see AnalogMeter.cpp's
+        // needleSpriteToOneXScale docs for the exact arithmetic (this
+        // constant deliberately does NOT depend on PluginEditorLayout.h,
+        // to keep this component suite-reusable - see this file's
+        // top-of-file docs).
+        static constexpr float needleSizeFraction = 0.804170f;
 
         // Flicker: sum of three low-frequency sine layers at deliberately
         // non-harmonic frequencies (see Flicker.h) - amplitudeFraction is

@@ -8,6 +8,38 @@ are still on disk and still tracked by git, just no longer referenced by
 source file. Yves (or a follow-up agent with `git rm` permission) should
 delete them once the visual sign-off on this revision lands.
 
+## Orphaned this revision (v0.3.11 - master-extracted needle/LED, real org emblem)
+
+Per Yves' brief: the needle-filmstrip approach was rejected twice (it was
+Blender-modelled, not recovered from the approved master), the peak LED was
+mis-registered onto a footer toggle, and the org emblem was the wrong
+medallion (no guitar silhouette - not the actual Basilica Audio mark). All
+three were replaced this revision. The five files below are STILL ON DISK
+and STILL TRACKED by git (this agent could not run `rm`/`mv`/`git rm`), just
+no longer referenced by `CMakeLists.txt`'s `juce_add_binary_data` SOURCES
+list or by any `src/` source file:
+
+```
+resources/gui/needle-filmstrip-v2.png
+resources/gui/needle-filmstrip-v2.json
+resources/gui/vu-hub-occluder-v1.png
+resources/gui/vu-hub-occluder-v1.json
+resources/gui/led-master-diff.png
+resources/gui/org-emblem.png
+```
+
+`resources/gui/vu-hub-occluder-v1.png` in particular is not just superseded
+but PROVABLY dead: the new needle-from-master.png sprite's own alpha is
+already transparent within ~43 master px of the pivot, wide enough that
+master-05's own baked hub-cap/anchor-bar/boss art shows through there
+unmodified - see `src/gui/AnalogMeter.h`'s top-of-file docs.
+
+**Still embedded, do NOT delete:** the new `resources/gui/needle-from-master.png`,
+`resources/gui/led-from-master.png`, `resources/gui/org-emblem-basilica-v1.png`,
+plus their `.json` provenance siblings (`needle-from-master.json`,
+`led-from-master.json` - copied to disk for documentation, never embedded,
+same convention the superseded filmstrip/occluder `.json` files used).
+
 ## Orphaned PNGs in `resources/gui/` (no longer embedded)
 
 These 22 files are no longer listed in `CMakeLists.txt`'s

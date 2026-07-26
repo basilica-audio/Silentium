@@ -124,53 +124,64 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     resources/gui/master-05.png
     resources/gui/master-06.png
     resources/gui/master-glow-dim.png
-    # Rotating VU needle overlay - v0.3.7 filmstrip v2 (replaces v1, which
-    # froze the baked angle's hub-occlusion boundary into every frame so
-    # the rotated needle visually disconnected from the pivot - Yves
-    # rejection 2026-07-23). v2 carries the FULL through-pivot rod (blade +
-    # counterweight tail on the far side, both master-diff-extracted from
-    # master-03's own pixels; only the cap-hidden mid-span is bridged with
-    # the rod's own cross-section profile) plus a baked fixed-row clip
-    # where the glass-band top rim occludes the rod. Same manifest as v1:
-    # 96 already-rotated 480x480 frames (-32.0deg..+44.0deg, 0.8deg/frame,
-    # rest/0deg = frame 40), pivot at each frame's exact centre.
-    # AnalogMeter::paint() does a frame-index lookup + source-rect blit;
-    # manifest constants are hardcoded there (the .json ships alongside the
-    # PNG purely for provenance). Built by gui-pipeline
-    # analysis/needle_diff/rod_and_occluder.py.
-    resources/gui/needle-filmstrip-v2.png
-    # Hub occluder (v0.3.7) - master-05's own anchor-bar + cap-disc + boss-
-    # cylinder pixels, alpha-masked to that assembly's silhouette and drawn
-    # ON TOP of the needle frame by AnalogMeter::paint(), so the rod passes
-    # visually BEHIND the joint at every angle (exactly the master's own
-    # layering: blade in front of the recess, under the cap; tail emerging
-    # below the bar). Pivot-relative placement constants hardcoded in
-    # AnalogMeter.cpp from vu-hub-occluder-v1.json (provenance only).
-    resources/gui/vu-hub-occluder-v1.png
-    # Peak-LED overlay - v0.3.6 replaces led-v4.png (a hand-authored/
-    # generated asset, drawn INSIDE the dial over the tick scale - wrong
-    # position AND provenance per Yves' master-03 reference) with
-    # led-master-diff.png: a clean 64x64 RGBA sprite EXTRACTED directly from
-    # master-03-raw.png's own baked lit LED pixels (master-03 is the one
-    # master render generation with both LEDs lit; master-05, this build's
-    # faceplate baseline, has neither) via a registration + abs-diff
-    # technique (analysis/led_diff/{register,extract,finalize}.py in the
-    # gui-pipeline scratch dir, mirroring analysis/needle_diff/'s proven
-    # needle-extraction approach) - no hand-drawing/generation involved, per
-    # the suite's master-fidelity rule. led-v4.png stays on disk
-    # (unreferenced) rather than being deleted here. Drawn by PluginEditor
-    # (not AnalogMeter - the LED sits on the PLATE outside each dial's own
-    # bezel, see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs).
-    resources/gui/led-master-diff.png
-    # Org emblem (Basilica Audio rose-window medallion) - v0.3.8 addition,
-    # drawn by PluginEditor.cpp's paint() centred in the empty plate gap
-    # between the two VU dial bezels (see PluginEditorLayout.h's
-    # orgEmblemCentre1x/orgEmblemDiameter1x docs). Extracted (not
-    # hand-authored) from brand/v2-plastic/raw/org.png - see
-    # PluginEditorLayout.h's org-emblem docs for the full circle-fit +
-    # colour-threshold extraction technique, which mirrors how
-    # rose-emblem-v4.png was itself built.
-    resources/gui/org-emblem.png
+    # Rotating VU needle overlay - v0.3.11 REPLACES the v0.3.5-v0.3.7
+    # filmstrip approach (needle-filmstrip-v1.png/v2.png, a 96-frame Blender
+    # render Yves rejected TWICE - "Du sollst weder mit Blender arbeiten
+    # noch sonst wie selbst was an der Nadel zeichnen. Die soll exakt so
+    # aussehen wie auf dem Master.") with needle-from-master.png: a single
+    # 288x288 RGBA sprite recovered by diffing master-03-raw.png (has
+    # needles) against master-05.png (this build's own faceplate baseline,
+    # has none) - genuine master pixels, never hand-drawn/Blender-rendered/
+    # resampled (see needle-from-master.json's own provenance record,
+    # copied alongside for documentation only, and AnalogMeter.cpp's
+    # bakedAngleDeg docs for why this sprite is drawn at a live
+    # juce::AffineTransform rotation instead of a pre-rotated frame stack).
+    # Round-trip-verified: pasted back at its own pivot with zero rotation,
+    # it diffs to a 0.69/255 mean residual against the source master inside
+    # the needle body. Alpha is transparent within ~43 master px of the
+    # pivot (the sprite's own damping-ring occlusion boundary) - this is
+    # WIDE ENOUGH that master-05's own baked hub-cap/anchor-bar/boss art
+    # (see the crop in this revision's handoff notes) shows through
+    # unmodified there, so - unlike the old filmstrip's v0.3.7 hub-occluder
+    # workaround - no separate occluder redraw is needed any more (removed
+    # this revision; vu-hub-occluder-v1.png stays on disk, unreferenced).
+    resources/gui/needle-from-master.png
+    # Peak-LED overlay - v0.3.11 REPLACES led-master-diff.png (extracted
+    # against a stale registration pass whose measured centres put the LED
+    # visibly on top of a footer toggle - Yves: "Diese PEAK LED ...
+    # merkwürdigerweise auf einem der Kippschalter") with led-from-master.png:
+    # a clean 58x58 RGBA sprite, same master-diff extraction technique
+    # (analysis/led_diff/{register,extract}.py), re-measured per dial
+    # (left AND right independently, not one sprite's position transferred
+    # via a dial-radius fraction - see led-from-master.json's own
+    # offsetFractionTransferErrorPx field for why that fraction is
+    # unreliable, 58px error on the right dial) so each LED lands exactly
+    # where master-03 bakes it: at the top of its own dial bezel. Drawn by
+    # PluginEditor (not AnalogMeter - the LED sits on the PLATE outside
+    # each dial's own bezel, see PluginEditorLayout.h's
+    # ledLCentre1x/ledRCentre1x docs).
+    resources/gui/led-from-master.png
+    # Org emblem (Basilica Audio rose-window medallion) - v0.3.11 REPLACES
+    # org-emblem.png (a generic/wrong rose-window asset with no guitar
+    # silhouette - not the Basilica Audio mark at all, hence Yves: "Das
+    # Logo in der Mitte fehlt" even though a medallion WAS being drawn)
+    # with org-emblem-basilica-v1.png, extracted directly from the suite's
+    # canonical brand/org.png (repo-relative to the suite root, one level
+    # above this repo - the same source every other plugin's app icon is
+    # cut from). brand/org.png is already circular artwork on a flat
+    # near-black square canvas (no squircle backing to work around, unlike
+    # the old asset's v2-plastic source) - extraction is a Kasa circle fit
+    # (ray-cast edge points, std/mean 0.15% across 720 angles - outer ring
+    # centre (511.58, 512.55), radius 390.87px in the source's own 1024x1024
+    # canvas) plus a colour-threshold alpha (background/near-black ->
+    # transparent, gold linework -> opaque, ~1px feather) intersected with a
+    # hard circular cutoff at the fitted radius - see
+    # PluginEditorLayout.h's org-emblem docs for the full derivation and
+    # orgEmblemContentDiameterFraction. Stays perfectly round: no bezel/ring
+    # is added by this extraction or by PluginEditor.cpp's draw call (an
+    # explicit standing user rule - see that file's paint() docs for the
+    # restrained-opacity + soft-shadow-only mounting treatment).
+    resources/gui/org-emblem-basilica-v1.png
     # Rotating knob discs (v0.3.9, item 4) - INNER-DISC variant, gate-approved
     # 2026-07-25: nine 85x85 RGBA discs, one per knob, extracted directly from
     # master-05.png's own baked pixels (colour data is an unresampled 1:1

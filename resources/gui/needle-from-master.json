@@ -1,0 +1,42 @@
+{
+  "spriteSize": 288,
+  "pivotXInMaster": 321.17,
+  "pivotYInMaster": 355.193,
+  "pivotXFrac": 0.5005902777777779,
+  "pivotYFrac": 0.5006701388888888,
+  "bakedAngleDeg": -39.563260406580696,
+  "sourceDial": "left",
+  "masterWidth": 1264,
+  "masterHeight": 848,
+  "reachPx": 129.81333333333333,
+  "spriteWindowCanvas": [
+    177,
+    211,
+    465,
+    499
+  ],
+  "provenance": "Extracted via master-diff analysis, not hand-authored, in two stages. REVISION 2 (2026-07-27): the first version derived alpha directly from |master-03-raw - master-05| diff AMPLITUDE, which washed out to near-zero opacity wherever the needle's own brass colour happened to resemble the dial's cream/amber colour, making the needle look pale and broken into pieces -- REJECTED on visual inspection. Fixed by decoupling LOCATION from OPACITY: the diff is still used to find/cross-validate the pivot and the needle's angle, but the alpha now comes from a solid GEOMETRIC mask of the needle's silhouette in master-03-raw.png itself. The mask is built per cross-section perpendicular to the needle's axis: a local linear background trend is fit from each cross-section's far border samples (assumed dial background), subtracted, and the contiguous span where the residual exceeds threshold -- INCLUDING its low-contrast interior, not just the two edges -- is the rod at that cross-section. Verified to be a single connected region with zero interior holes (asserted in code). Interior alpha=255 (solid), with only a ~1px gaussian-feather antialiased boundary. A separate, softer drop-shadow region (max alpha 130) is added from where master-03 is darker than master-05 immediately adjacent to (but outside) the body mask -- kept deliberately weaker than the body and never allowed to touch/dilute it. The visible rod starts at t=43px from the pivot (measured along the baked angle), matching the independently-measured hub damping-ring radius of 40.65px -- i.e. it is genuinely occluded by the static, already-baked hub cap below that radius, so the sprite correctly leaves that area transparent rather than painting over the plate's own hub art. The tip is a rounded cap (visually confirmed, not a sharp point) closed off with a semicircle at the last reliably-measured half-width. RGB is taken unshifted directly from master-03-raw.png -- never rotated or resampled; only alpha is synthesized. The pivot (321.170, 355.193) was measured independently from master-05.png (robust circle fit to the static, unoccluded damping-ring hardware around the hub) and bakedAngleDeg from a diff-weighted PCA of the needle pixels; both cross-validated (fitted rod centerline passes within ~4px of the pivot) and unchanged by this revision. Faithfulness verified by a mandatory round-trip test: paste this sprite back onto master-05.png at the pivot with ZERO additional rotation and diff against master-03-raw.png -- see components/qa-roundtrip-residual.png and analysis/needle_mask_v2/qa_roundtrip_results.json. JUCE must subtract bakedAngleDeg from the target dB-to-angle value before rotating this sprite.",
+  "debug": {
+    "pivot_axis_frame": {
+      "t_start": 19.0,
+      "t_end": 129.0
+    },
+    "body_mask_area_px": 833,
+    "n_components_final": 1,
+    "interior_hole_px_before_fix": 0,
+    "shadow_px": 164,
+    "alpha_max": 255.0,
+    "alpha_mean_nonzero": 182.1298565618013,
+    "alpha_opaque_ge250_px": 833,
+    "alpha_nonzero_px": 1292,
+    "alpha_low_1_15_px": 41,
+    "opaque_fraction_of_body_mask": 1.0,
+    "corner_alphas": {
+      "tl": 0.0,
+      "tr": 0.0,
+      "bl": 0.0,
+      "br": 0.0
+    },
+    "reach_px": 129.81333333333333
+  }
+}

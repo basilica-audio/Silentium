@@ -30,51 +30,27 @@ namespace
         Tick { 1.0f, 25.47f }, Tick { 2.0f, 32.92f }, Tick { 3.0f, 40.39f }
     };
 
-    // Needle FILMSTRIP manifest (v0.3.5, asset revised v0.3.7) - copied
-    // verbatim from resources/gui/needle-filmstrip-v2.json's provenance
-    // record, hardcoded here per Yves' brief rather than parsed from that
-    // .json at runtime (paint()'s frame-index lookup below must not touch
-    // the filesystem). A vertical stack of needleFrameCount already-
-    // rotated needleFrameW x needleFrameH frames, ascending angle order,
-    // each frame's own pivot at its exact centre (0.5, 0.5) - so drawing a
-    // frame into a square destination box centred on this component's
-    // pivot reproduces the old single-image AffineTransform rotation
-    // exactly, without any live rotation.
+    // v0.3.11: needle-from-master.png manifest - copied verbatim from
+    // resources/gui/needle-from-master.json's provenance record, hardcoded
+    // here per the suite's convention (paint() below must not touch the
+    // filesystem). A SINGLE 288x288 RGBA sprite recovered by diffing
+    // master-03-raw.png (has needles) against master-05.png (this build's
+    // own faceplate baseline, has none) - genuine master pixels, never
+    // hand-drawn/Blender-modelled/resampled (round-trip-verified: pasted
+    // back at its own pivot with zero rotation, it diffs to a 0.69/255
+    // mean residual against the source master inside the needle body).
     //
-    // v0.3.7: the frames now carry the FULL through-pivot rod (blade +
-    // counterweight tail, master-diff-extracted) - the v1 strip's blade
-    // ended at the baked angle's frozen hub-occlusion boundary, so the
-    // rotated needle visually disconnected from the pivot (Yves rejection
-    // 2026-07-23). The matching hub OCCLUDER (assets.hubOccluder, drawn
-    // after the needle below) restores the master's own layering: rod in
-    // front of the recess, behind the cap/bar/boss assembly.
-    constexpr int needleFrameCount = 96;
-    constexpr int needleFrameW = 480;
-    constexpr int needleFrameH = 480;
-    constexpr float needleMinDeg = -32.0f;
-    [[maybe_unused]] constexpr float needleMaxDeg = 44.0f; // == needleMinDeg + (needleFrameCount - 1) * needleDegPerFrame, kept for provenance/documentation parity with the .json manifest
-    constexpr float needleDegPerFrame = 0.8f;
-    [[maybe_unused]] constexpr int needleRestFrameIndex = 40; // the filmstrip's own "straight up" pose - not consulted at runtime (frame index is always derived from the live angle), kept for provenance
-    constexpr float needleHubXFraction = 0.5f;
-    constexpr float needleHubYFraction = 0.5f;
+    // Deliberately NOT pre-rotated to a canonical "straight up" pose during
+    // extraction - doing so would resample and soften the master's own
+    // pixels, exactly what the suite's master-fidelity rule forbids. The
+    // sprite therefore sits at its own bakedAngleDeg as delivered, and
+    // paint() must apply (targetDeg - bakedAngleDeg) as the LIVE rotation
+    // each frame, not targetDeg alone - getting this backwards would park
+    // the needle ~40deg away from every tick it should be pointing at.
+    constexpr float needleSpriteCanvasPx = 288.0f;
+    constexpr float needleBakedAngleDeg = -39.563260406580696f;
 
-    // A needle frame's 480px square corresponds to this many master-render
-    // pixels on screen (needleSizeFraction * meterComponentSize1x *
-    // masterCanvasWidthPx / plateWidth1x = 0.84 * 255 * 1264 / 900) - the
-    // conversion the hub-occluder placement below shares with the
-    // gui-pipeline build scripts' scale chain.
-    constexpr float needleDrawSizeMasterPx = 300.832f;
-
-    // Hub-occluder placement (v0.3.7) - copied verbatim from
-    // resources/gui/vu-hub-occluder-v1.json's provenance record (pivot-
-    // relative bbox of master-05's bar + cap + boss silhouette, in master
-    // px; extraction: gui-pipeline analysis/needle_diff/rod_and_occluder.py).
-    constexpr float occluderWidthMasterPx = 183.0f;
-    constexpr float occluderHeightMasterPx = 58.0f;
-    constexpr float occluderLeftRelPivotMasterPx = -79.42336f;
-    constexpr float occluderTopRelPivotMasterPx = -23.20854f;
-
-    static_assert (needleRestFrameIndex >= 0 && needleRestFrameIndex < needleFrameCount);
+    static_assert (needleSpriteCanvasPx > 0.0f);
 }
 
 namespace basilica::gui
@@ -275,45 +251,43 @@ namespace basilica::gui
         // setImmediateDbForPreview() below) still lives here - it owns the
         // dB data, only the DRAW moved.
 
-        // 3. Needle - v0.3.5 FILMSTRIP lookup (replaces the single-image
-        // live AffineTransform rotation): the needle asset is now a
-        // vertical stack of already-rotated frames (see the anonymous
-        // namespace's needleFrame* manifest constants above), so paint()
-        // only has to pick the nearest frame for the current angle and
-        // blit it - no rotation math at draw time. Each frame's own pivot
-        // sits at its exact centre, so a square destination box centred on
-        // this component's pivot reproduces the old rotation exactly.
+        // 3. Needle - v0.3.11: a SINGLE master-extracted sprite
+        // (needle-from-master.png), rotated live about its own canvas
+        // centre with a juce::AffineTransform, then translated to this
+        // meter's pivot - replaces the v0.3.5-v0.3.7 pre-rotated 96-frame
+        // filmstrip lookup (see this file's top-of-file manifest docs for
+        // why: the sprite was deliberately NOT rotated to a canonical pose
+        // during extraction, so a live rotation - not a frame-index blit -
+        // is what preserves its master pixels unresampled at rest).
+        //
+        // CRITICAL: rotationToApply = targetDeg - needleBakedAngleDeg. The
+        // sprite's own rod already sits at needleBakedAngleDeg (its pose in
+        // the master render it was cut from), so drawing it with
+        // targetDeg's own value as the rotation would double-apply that
+        // baked pose and park the needle ~40deg away from the tick it
+        // should point at - verified against the -20..+3dB tick table
+        // above: at 0dB (targetDeg = 18.02), rotationToApply =
+        // 18.02 - (-39.5633) = 57.58deg, which is exactly the live turn
+        // that brings the sprite's own -39.56deg rest pose onto the dial's
+        // 0dB tick.
         if (assets.needle.isValid())
         {
             const auto needleDrawSize = needleSizeFraction * juce::jmin (bounds.getWidth(), bounds.getHeight());
+            const auto spriteScale = needleDrawSize / needleSpriteCanvasPx;
 
             const auto targetDeg = tickAngleDegreesForDb (smoothedDb);
-            const auto frameIndex = juce::jlimit (0, needleFrameCount - 1,
-                                                juce::roundToInt ((targetDeg - needleMinDeg) / needleDegPerFrame));
+            const auto rotationToApplyDeg = targetDeg - needleBakedAngleDeg;
+            const auto rotationRadians = juce::degreesToRadians (rotationToApplyDeg);
 
-            const auto destX = juce::roundToInt (pivotX - needleHubXFraction * needleDrawSize);
-            const auto destY = juce::roundToInt (pivotY - needleHubYFraction * needleDrawSize);
-            const auto destSize = juce::roundToInt (needleDrawSize);
+            const auto imageHalfW = 0.5f * (float) assets.needle.getWidth();
+            const auto imageHalfH = 0.5f * (float) assets.needle.getHeight();
 
-            g.drawImage (assets.needle,
-                        destX, destY, destSize, destSize,
-                        0, frameIndex * needleFrameH, needleFrameW, needleFrameH);
+            const auto transform = juce::AffineTransform::translation (-imageHalfW, -imageHalfH)
+                                        .scaled (spriteScale)
+                                        .rotated (rotationRadians)
+                                        .translated (pivotX, pivotY);
 
-            // 4. Hub occluder (v0.3.7) - master-05's own bar + cap + boss
-            // pixels redrawn ON TOP of the needle frame, so the rod passes
-            // visually BEHIND the joint at every angle (the master's own
-            // layering; the blade stays in front of the recess, the tail
-            // emerges below the bar). Placement maps the pivot-relative
-            // master-px bbox through the same scale the needle frame uses.
-            if (assets.hubOccluder.isValid())
-            {
-                const auto s = needleDrawSize / needleDrawSizeMasterPx;
-                g.drawImage (assets.hubOccluder,
-                             juce::Rectangle<float> (pivotX + occluderLeftRelPivotMasterPx * s,
-                                                     pivotY + occluderTopRelPivotMasterPx * s,
-                                                     occluderWidthMasterPx * s,
-                                                     occluderHeightMasterPx * s));
-            }
+            g.drawImageTransformed (assets.needle, transform, false);
         }
     }
 

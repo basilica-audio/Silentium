@@ -360,16 +360,21 @@ TEST_CASE ("Input meter needle fan pivots cleanly on its own true hub across a d
     const auto pivotXLocal = slnt::layout::meterRPivotXFraction * (float) slnt::layout::meterComponentSize1x;
     const auto pivotYLocal = slnt::layout::meterRPivotYFraction * (float) slnt::layout::meterComponentSize1x;
 
-    // v0.3.7 (through-pivot rod + hub occluder): the rod now legitimately
-    // sweeps VISIBLY through the recess annulus around the hub (exactly as
-    // master-03 bakes it), so the old "everything near the hub is static"
-    // radius (29.2px, the shadow-disc ring) no longer holds. What IS
-    // guaranteed static now is the hub-OCCLUDER cap disc that
-    // AnalogMeter::paint() draws on top of the needle frame: 21 master px
-    // (AnalogMeter.cpp's occluder geometry) * plateWidth1x/
-    // masterCanvasWidthPx (900/1264) ~= 14.95px @1x - probed at 13px to
-    // stay safely inside the occluder's own ~1.3px alpha feather + edge AA.
-    constexpr float hubCapRadius1x = 13.0f;
+    // v0.3.11 (single master-extracted sprite, no hub occluder): the
+    // v0.3.7 hub-OCCLUDER cap disc this probe radius used to be calibrated
+    // against is gone (see AnalogMeter.h's top-of-file docs - the new
+    // needle-from-master.png sprite's own alpha already handles the
+    // occlusion, no separate redraw needed). The guaranteed-static zone is
+    // now that sprite's own verified-zero-alpha region around its pivot:
+    // needle-from-master.json's REVISION 2 alpha mask has its first
+    // nonzero pixel at radius 16.12 master px (independently re-measured
+    // against the shipped asset, not copied from that .json's own possibly
+    // stale prose - see this file's own handoff notes). Converted to @1x
+    // by plateWidth1x/masterCanvasWidthPx (900/1264): 16.12 * 900/1264 ~=
+    // 11.48px @1x - probed at 9px to keep a deliberate, non-arbitrary
+    // margin (~22%) below that boundary, safely clear of the sprite's own
+    // antialiased edge.
+    constexpr float hubCapRadius1x = 9.0f;
 
     double totalDiffEnergy = 0.0;
     double diskDiffEnergy = 0.0;
@@ -420,21 +425,22 @@ TEST_CASE ("Input meter needle fan pivots cleanly on its own true hub across a d
                                 << "; disk/total diff energy = " << diskDiffEnergy << "/" << totalDiffEnergy
                                 << " = " << (diskEnergyFraction * 100.0) << "%");
 
-    // v0.3.7: inside the hub-occluder cap disc the pixels are the OCCLUDER's
-    // (drawn after the needle frame), so the sweep difference there must be
-    // essentially zero - this guards the occluder's presence AND placement:
-    // a missing or misplaced occluder would let the rod's bridge span sweep
-    // visibly right at the pivot (the "disconnected needle" defect family
-    // this whole revision closes), and a mispositioned pivot would smear
-    // difference energy into the disc the same way. The only non-zero
-    // residue inside the probe disc is edge AA where the disc's boundary
-    // pixels graze the occluder feather.
+    // v0.3.11: inside this (smaller, sprite-derived) probe disc every pixel
+    // is master-05's own static baked hub-cap/anchor-bar/boss art at every
+    // sweep angle - the needle sprite itself is verified alpha=0 there, so
+    // it never draws anything into this region at all (rather than the old
+    // architecture's occluder redraw actively covering it) - so the sweep
+    // difference must be essentially zero. This still guards exactly the
+    // same regression class as before: a mispositioned pivot would smear
+    // difference energy into the disc as soon as any part of the sprite's
+    // real (nonzero-alpha) content swept across it.
     //
     // Threshold calibration (measured locally, this revision): correct
-    // occluder = exactly 0% (the opaque occluder core fully covers the
-    // 13px probe disc). 0.5% keeps a wide CI-stable margin for renderer
-    // AA differences while still failing hard on a missing/misplaced
-    // occluder or pivot regression.
+    // placement = exactly 0% (the sprite's own verified-transparent zone
+    // fully covers the 9px probe disc). 0.5% keeps a wide CI-stable margin
+    // for renderer AA differences while still failing hard on a
+    // mispositioned pivot or a needle asset whose alpha stops being
+    // transparent this close to its own centre.
     CHECK (totalDiffEnergy > 0.0); // sanity: the needle actually moved
     CHECK (diskEnergyFraction < 0.005);
 

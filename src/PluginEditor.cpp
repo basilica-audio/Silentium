@@ -204,9 +204,12 @@ namespace
     // AnalogMeter.h's docs) - AnalogMeter's Assets no longer carries a face
     // image, only the live overlay elements it still owns the draw for.
     //
-    // v0.3.5: assets.needle now holds the pre-rendered needle FILMSTRIP
-    // (needle-filmstrip-v1.png), not the old single-image
-    // vu-needle-master-v3.png - see AnalogMeter.cpp's frame-index lookup.
+    // v0.3.11: assets.needle now holds the SINGLE master-extracted sprite
+    // (needle-from-master.png), not a pre-rendered filmstrip - see
+    // AnalogMeter.cpp's live juce::AffineTransform rotation. No more
+    // assets.hubOccluder either (removed this revision - the new sprite's
+    // own alpha already leaves master-05's baked hub-cap art unmodified
+    // near the pivot, see AnalogMeter.h's top-of-file docs).
     //
     // v0.3.6: no more assets.led - the peak LED's own image draw moved to
     // this editor (ledImage, loaded in the constructor below, drawn by
@@ -216,32 +219,34 @@ namespace
     basilica::gui::AnalogMeter::Assets makeMeterAssets()
     {
         basilica::gui::AnalogMeter::Assets assets;
-        assets.needle = loadImage (BinaryData::needlefilmstripv2_png, BinaryData::needlefilmstripv2_pngSize);
-        assets.hubOccluder = loadImage (BinaryData::vuhuboccluderv1_png, BinaryData::vuhuboccluderv1_pngSize);
+        assets.needle = loadImage (BinaryData::needlefrommaster_png, BinaryData::needlefrommaster_pngSize);
         return assets;
     }
 
-    // Peak-LED sprite geometry inside led-master-diff.png's own 64x64
-    // canvas: ledContentDiameterFraction is the bright bulb CORE disc's own
-    // fraction of that canvas (18.0 master-03 px core / 64px canvas -
-    // measured by analysis/led_diff/extract.py, see
-    // PluginEditorLayout.h's ledCoreDiameter1x docs for the master-px
-    // measurement this derives from), NOT the much larger soft halo (which
-    // is deliberately left to overflow past the nominal draw size computed
-    // below, via the asset's own alpha - same convention the old
-    // AnalogMeter-owned LED used for led-v4.png). ledImageDrawSize1x is the
-    // WHOLE image's own draw diameter @1x, back-derived so the CORE lands
-    // at exactly ledCoreDiameter1x on screen.
-    constexpr float ledContentDiameterFraction = 18.0f / 64.0f;
-    constexpr float ledImageDrawSize1x = ledCoreDiameter1x / ledContentDiameterFraction;
+    // v0.3.11: led-from-master.png's own 58x58 canvas is a native,
+    // UNRESAMPLED 1:1 master-px crop (same convention as
+    // knobDiscCanvasToOneXScale/toMasterPxRect() below - NOT the old
+    // led-master-diff.png's back-derived "core content fraction of a
+    // differently-sized canvas" convention, which no longer applies to
+    // this new, independently re-measured sprite). ledImageDrawSize1x is
+    // therefore simply that native canvas size scaled by the SAME
+    // master->@1x factor every other master-derived asset in this file
+    // uses (plateWidth1x/masterCanvasWidthPx, 900/1264).
+    constexpr float ledSpriteCanvasPx = 58.0f;
+    constexpr float ledImageDrawSize1x = ledSpriteCanvasPx * (float) plateWidth1x / (float) masterCanvasWidthPx;
 
-    // Org emblem sprite geometry inside org-emblem.png's own 1024x1024
-    // canvas: orgEmblemContentDiameterFraction (PluginEditorLayout.h) is the
-    // visible medallion's own diameter as a fraction of that full canvas -
-    // orgEmblemImageDrawSize1x is the WHOLE image's own draw diameter @1x,
-    // back-derived (same convention as ledImageDrawSize1x above) so the
-    // medallion itself lands at exactly orgEmblemDiameter1x on screen.
-    constexpr float orgEmblemImageDrawSize1x = orgEmblemDiameter1x / orgEmblemContentDiameterFraction;
+    // Org emblem sprite geometry inside org-emblem-basilica-v1.png's own
+    // 1024x1024 canvas: orgEmblemContentDiameterFraction
+    // (PluginEditorLayout.h) is the visible medallion's own diameter as a
+    // fraction of that full canvas - orgEmblemImageDrawSize1x is the WHOLE
+    // image's own draw diameter @1x, back-derived so the medallion itself
+    // lands at exactly orgEmblem.diameter1x on screen. Not constexpr (unlike
+    // ledImageDrawSize1x above): orgEmblem is a plain `const` (its own
+    // juce::Point member has no constexpr constructor in JUCE 8.0.14, see
+    // PluginEditorLayout.h's top-of-file docs), so this can only be a
+    // runtime-initialised `const` too - still computed exactly once, at
+    // static-init time, well before the constructor/paint() ever run.
+    const float orgEmblemImageDrawSize1x = orgEmblem.diameter1x / orgEmblemContentDiameterFraction;
 
     // Converts a layout-table rectangle (@1x plate-local units, the
     // PluginEditorLayout.h table's own coordinate frame) into the matching
@@ -281,8 +286,8 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     masterBaseline = loadImage (BinaryData::master05_png, BinaryData::master05_pngSize);
     masterToggleDown = loadImage (BinaryData::master06_png, BinaryData::master06_pngSize);
     masterGlowDim = loadImage (BinaryData::masterglowdim_png, BinaryData::masterglowdim_pngSize);
-    ledImage = loadImage (BinaryData::ledmasterdiff_png, BinaryData::ledmasterdiff_pngSize);
-    orgEmblemImage = loadImage (BinaryData::orgemblem_png, BinaryData::orgemblem_pngSize);
+    ledImage = loadImage (BinaryData::ledfrommaster_png, BinaryData::ledfrommaster_pngSize);
+    orgEmblemImage = loadImage (BinaryData::orgemblembasilicav1_png, BinaryData::orgemblembasilicav1_pngSize);
 
     // v0.3.9 (item 4): the 9 rotating knob-disc overlays, index-matched to
     // knobLayout/knobDiscLayout above (0=Threshold..8=Knee) - a local
@@ -553,18 +558,23 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     // overlay, so it always sits UNDER the toggle-zone/vent-glow/LED layers
     // (none of which spatially overlap it, but this keeps z-order intent
     // explicit).
-    // Not baked into master-05 (see PluginEditorLayout.h's orgEmblemCentre1x
-    // docs for why/provenance). A soft drop shadow is drawn FIRST, offset
-    // down-right (light source upper-left, matching every other mounted
-    // element's shadow convention) so the medallion reads as sitting ON the
-    // plate like the VU bezels do, not floating - deliberately restrained
-    // (single radial-gradient ellipse, alpha capped well below a "floating"
-    // look), per the suite's GUI-BASELINE rule.
+    // Not baked into master-05 (see PluginEditorLayout.h's orgEmblem docs
+    // for why/provenance/size-and-position derivation). A soft drop shadow
+    // is drawn FIRST, offset down-right (light source upper-left, matching
+    // every other mounted element's shadow convention) so the medallion
+    // reads as sitting ON the plate like the VU bezels do, not floating -
+    // deliberately restrained (single radial-gradient ellipse, alpha capped
+    // well below a "floating" look), per the suite's GUI-BASELINE rule. The
+    // image itself is drawn at a slightly reduced opacity (not full 1.0),
+    // the same "restrained, not pasted-on" integration the shadow is meant
+    // to achieve - genuinely round (see the asset's own extraction docs),
+    // no additional bezel/ring/frame drawn around it here or baked into the
+    // asset (an explicit standing user rule).
     if (orgEmblemImage.isValid())
     {
-        const auto emblemCentre = juce::Point<float> (plateOrigin.x + s (orgEmblemCentre1x.x),
-                                                       plateOrigin.y + s (orgEmblemCentre1x.y));
-        const auto emblemRadius = s (orgEmblemDiameter1x) * 0.5f;
+        const auto emblemCentre = juce::Point<float> (plateOrigin.x + s (orgEmblem.centre1x.x),
+                                                       plateOrigin.y + s (orgEmblem.centre1x.y));
+        const auto emblemRadius = s (orgEmblem.diameter1x) * 0.5f;
 
         const auto shadowCentre = emblemCentre.translated (s (4.0f), s (4.0f));
         const auto shadowRadius = emblemRadius * 1.18f;
@@ -580,6 +590,9 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
         g.fillEllipse (juce::Rectangle<float> (shadowRadius * 2.0f, shadowRadius * 2.0f).withCentre (shadowCentre));
 
         const auto drawSize = s (orgEmblemImageDrawSize1x);
+
+        juce::Graphics::ScopedSaveState orgEmblemSaveState (g);
+        g.setOpacity (0.92f);
         g.drawImage (orgEmblemImage, juce::Rectangle<float> (drawSize, drawSize).withCentre (emblemCentre));
     }
 
