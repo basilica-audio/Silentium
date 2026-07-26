@@ -101,6 +101,25 @@ namespace basilica::gui
         // has none - see that test's own docs).
         void setImmediateDbForPreview (float db) noexcept;
 
+        // Test/preview-only (item 5 proof): sets this meter's own
+        // flicker/glow "clock" (startTimeSeconds, the anchor
+        // currentFlickerMultiplier() measures elapsed time FROM) so that
+        // "elapsed time" at the NEXT paint() call reads as (very close to)
+        // elapsedSeconds, regardless of real wall-clock time at the moment
+        // this is called - i.e. an ABSOLUTE simulated position in the
+        // flicker's own multi-sine cycle, not a relative shift. This is
+        // what makes tests/gui/EditorSnapshotTests.cpp's item 5 proof fully
+        // reproducible: neither a real wall-clock sleep NOR a relative
+        // clock offset can guarantee a large delta between two captured
+        // frames (the underlying flicker is a weighted sum of several
+        // non-harmonic sine layers - not monotonic, so either approach can
+        // land on a near-zero delta purely by chance, depending on
+        // whatever real "now" happens to be when the test runs); calling
+        // this with two independently pre-verified elapsedSeconds values
+        // removes that dependency entirely. Repaints immediately. Normal
+        // operation never calls this.
+        void setFlickerElapsedSecondsForPreview (double elapsedSeconds) noexcept;
+
         void paint (juce::Graphics& g) override;
         std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
@@ -187,12 +206,40 @@ namespace basilica::gui
 
         // Flicker: sum of three low-frequency sine layers at deliberately
         // non-harmonic frequencies (see Flicker.h) - amplitudeFraction is
-        // the peak deviation from the base alpha values above (+-4%, within
-        // Yves' +-3-5% brief). flickerPhaseSeed offsets each sine layer's
-        // phase per-instance so two AnalogMeters never flicker in lockstep.
+        // the peak deviation from the base alpha values above.
+        // flickerPhaseSeed offsets each sine layer's phase per-instance so
+        // two AnalogMeters never flicker in lockstep.
+        //
+        // v0.3.9 (item 5 fix): raised from the original +-4% (Yves' initial
+        // +-3-5% brief) to +-7% - the smaller amplitude read as essentially
+        // invisible at idle against the dial's own dark plate colour ("es
+        // flackert auch nix", Yves' explicit complaint). A SECOND, much
+        // slower drift layer (flickerDriftAmplitudeFraction,
+        // Flicker.h's own slowDriftLayers table - periods ~7.5-32s, an
+        // order of magnitude slower than the primary layers' ~0.9-3.4s) is
+        // now ADDED on top in currentFlickerMultiplier(), giving the glow a
+        // genuine two-time-scale "incandescent lamp" character (a slow
+        // thermal-looking drift plus faster micro-flicker) rather than one
+        // uniform sine mix - see that method's docs.
+        //
+        // v0.3.10 (final sign-off pass, "etwas deutlicher"/"a bit more
+        // noticeable" - Yves): both amplitudes raised again, +-7%->+-10%
+        // (fast layer) and +-3%->+-5% (slow drift layer), still clearly
+        // below strobing and consistent with the incandescent character -
+        // see tests/gui/EditorSnapshotTests.cpp's item 5 flicker-diff proof,
+        // regenerated against these values.
         float flickerPhaseSeed = 0.0f;
         double startTimeSeconds = 0.0;
-        static constexpr float flickerAmplitudeFraction = 0.04f;
+        static constexpr float flickerAmplitudeFraction = 0.10f;
+        static constexpr float flickerDriftAmplitudeFraction = 0.05f;
+
+        // Phase offset applied on top of flickerPhaseSeed for the slow
+        // drift layer only, so it never shares the exact same per-layer
+        // phase as the fast layer even when both instances' seeds are
+        // small integers (0.0f/1.0f) - an arbitrary irrational-feeling
+        // constant, same convention Flicker.h's own flickerMultiplier()
+        // uses for its per-layer offsets.
+        static constexpr float flickerDriftPhaseOffset = 9.1f;
 
         static constexpr double timerHz = 30.0;
         static constexpr float ballisticsTauSeconds = 0.3f;

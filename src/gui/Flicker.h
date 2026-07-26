@@ -32,6 +32,21 @@ namespace basilica::gui
         FlickerLayer { 0.29f, 0.2f },
     };
 
+    // A second, DELIBERATELY SLOWER 3-layer table (frequencies roughly an
+    // order of magnitude below standardFlickerLayers above, periods
+    // ~7.5-32s rather than ~0.9-3.4s) - added for the item 5 GUI revision
+    // (visible idle flicker: tube-vent glow's idle "breathing" baseline and
+    // the VU bulb glow's added slow-drift component) to give a genuinely
+    // distinct SECOND time scale, layered on top of/alongside the fast
+    // standardFlickerLayers jitter above, rather than just another sine in
+    // the same band. Same non-harmonic-frequency, weights-sum-to-1.0
+    // convention as standardFlickerLayers.
+    inline constexpr std::array<FlickerLayer, 3> slowDriftLayers {
+        FlickerLayer { 0.071f, 0.5f },
+        FlickerLayer { 0.133f, 0.3f },
+        FlickerLayer { 0.031f, 0.2f },
+    };
+
     // Returns 1.0 +/- amplitudeFraction, i.e. a multiplier to scale a base
     // alpha/brightness value by. `phaseSeed` should differ per visual
     // instance (e.g. 0.0f / 1.0f / 2.0f / 3.0f for four independently

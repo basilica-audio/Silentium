@@ -20,13 +20,25 @@ class SilentiumAudioProcessor;
 // and both tube-vent grilles at normal glow are ALL baked into that one
 // image (see PluginEditor.cpp's paint() docs for the exact z-order of the
 // small set of dynamic overlays drawn on top of it: per-toggle master-06
-// crop swap, a subtle vent-glow cross-blend, and the two AnalogMeter
-// children's needle/LED/glow). Knobs and toggles are now PASSIVE controls -
-// a transparent juce::Slider per knob and a plain juce::ToggleButton per
-// toggle, used purely for mouse handling + APVTS attachment, with no custom
-// paint()/visible rotation of their own (the double-image artifact of
-// overlaying a rotating control on top of a baked one, rejected in an
-// earlier iteration, is structurally impossible this way).
+// crop swap, a subtle vent-glow cross-blend, the two AnalogMeter children's
+// needle/LED/glow, and (v0.3.9, item 4) nine per-knob rotating INNER discs.
+// Toggles remain PASSIVE controls - a plain juce::ToggleButton per toggle,
+// used purely for mouse handling + APVTS attachment, with no visible
+// rotation of its own.
+//
+// v0.3.9 (item 4, gate-approved INNER-DISC variant): the 9 knobs are STILL
+// baked into master-05 at their 12 o'clock rest pose, and each knob's
+// juce::Slider is still fully transparent/invisible on its own (mouse+APVTS
+// only, no custom paint()) - but this editor's own paint() now additionally
+// draws a small per-knob rotating disc (resources/gui/knob-disc-N-inner.png,
+// N=0..8) on top of the baked plate at that knob's own live rotation angle.
+// This is NOT the double-knob artifact Yves rejected in an earlier
+// iteration: each disc's alpha is cut at 80% of its own fitted radius (see
+// PluginEditor.cpp's knobDiscLayout docs), so only the pointer notch + inner
+// knurl are visible and rotate - the baked outer rim AND its specular
+// crescent highlight stay part of the static master-05 plate underneath,
+// unrotated, at every angle. See PluginEditor.cpp's paint()/resized() for
+// the per-knob draw-centre table and repaint-on-value-change wiring.
 class SilentiumAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                              private juce::Timer
 {
@@ -48,6 +60,30 @@ public:
     // operation never calls this.
     void setVentGlowMixForPreview (float t) noexcept;
 
+    // Test/preview-only (item 5 proof): recomputes the vent-glow mix using
+    // the SAME production code path timerCallback() uses on its own next
+    // 30Hz tick (updateVentGlowMix(), see the .cpp) - i.e. the real idle-
+    // breathing wander + signal-driven push + fast flicker jitter, read
+    // from ACTUAL wall-clock time - and repaints the vent-bank region.
+    // Unlike setVentGlowMixForPreview() above (which sets an arbitrary
+    // FINAL mix value directly, bypassing the computation entirely), this
+    // lets tests/gui/EditorSnapshotTests.cpp prove the idle-breathing
+    // wander is genuinely time-varying by calling this twice with a real
+    // (short) wall-clock gap in between, without needing a running message
+    // loop to pump this editor's own 30Hz juce::Timer. Normal operation
+    // only ever reaches updateVentGlowMix() via timerCallback().
+    void recomputeVentGlowForPreview() noexcept;
+
+    // Test/preview-only (item 5 proof): sets the vent-glow idle-breathing
+    // clock (ventGlowStartTimeSeconds) so "elapsed time" reads as (very
+    // close to) elapsedSeconds, then immediately recomputes ventGlowMix and
+    // repaints - the vent-glow equivalent of AnalogMeter::
+    // setFlickerElapsedSecondsForPreview() (see that method's own docs for
+    // why an ABSOLUTE simulated elapsed time, rather than a relative offset
+    // or a real wall-clock sleep, is what makes this proof reproducible).
+    // Normal operation never calls this.
+    void setVentGlowElapsedSecondsForPreview (double elapsedSeconds) noexcept;
+
 private:
     // Re-reads the processor's metering atomics and feeds AnalogMeter -
     // driven by this editor's own juce::Timer (same pattern PresetBar
@@ -60,6 +96,13 @@ private:
     // is drawn directly in this editor's own paint() rather than by a child
     // component with its own timer (see .cpp).
     void timerCallback() override;
+
+    // Shared by timerCallback() and recomputeVentGlowForPreview() (see that
+    // method's docs above) - computes ventGlowMix from the processor's
+    // current input-level reading (idle-breathing wander + signal-driven
+    // push + fast flicker jitter) using real wall-clock time. Does NOT
+    // repaint itself - callers repaint ventGlowRepaintBounds explicitly.
+    void updateVentGlowMix() noexcept;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
@@ -127,6 +170,12 @@ private:
     // for why).
     juce::Image ledImage;
 
+    // Org emblem (Basilica Audio rose-window medallion) - v0.3.8 addition,
+    // drawn as its own overlay by this editor's paint() (see
+    // PluginEditorLayout.h's orgEmblemCentre1x/orgEmblemDiameter1x docs for
+    // placement/provenance). Not part of the master-05 baked render.
+    juce::Image orgEmblemImage;
+
     basilica::presets::PresetBar presetBar;
     juce::TextButton scaleButton;
     int scaleStepIndex = 0; // 0 = 100%, 1 = 150%, 2 = 200%
@@ -136,6 +185,21 @@ private:
 
     static constexpr int numKnobs = 9;
     std::array<Knob, numKnobs> knobs;
+
+    // v0.3.9 (item 4): the 9 rotating INNER-disc overlay images
+    // (resources/gui/knob-disc-N-inner.png, loaded in the constructor),
+    // index-matched to `knobs`/knobLayout - see PluginEditor.cpp's
+    // knobDiscLayout table for each disc's own manifest-measured draw
+    // centre/diameter and paint()'s draw call for the live rotation.
+    std::array<juce::Image, numKnobs> knobDiscImages;
+
+    // Per-knob on-screen repaint bounds at the current scale step
+    // (recomputed in resized(), same convention as ventGlowRepaintBounds
+    // above) - each knob's juce::Slider triggers a repaint of just its own
+    // entry here via onValueChange (see the constructor), rather than a
+    // full-plate repaint, so dragging one knob never forces a redraw of the
+    // other eight discs' worth of AffineTransform work.
+    std::array<juce::Rectangle<int>, numKnobs> knobDiscRepaintBounds;
 
     // Footer toggles (Duck, Listen) - passive juce::ToggleButton instances;
     // the visible up/down state is drawn by paint()'s master-05/master-06

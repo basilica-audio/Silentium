@@ -162,6 +162,39 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     # (not AnalogMeter - the LED sits on the PLATE outside each dial's own
     # bezel, see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs).
     resources/gui/led-master-diff.png
+    # Org emblem (Basilica Audio rose-window medallion) - v0.3.8 addition,
+    # drawn by PluginEditor.cpp's paint() centred in the empty plate gap
+    # between the two VU dial bezels (see PluginEditorLayout.h's
+    # orgEmblemCentre1x/orgEmblemDiameter1x docs). Extracted (not
+    # hand-authored) from brand/v2-plastic/raw/org.png - see
+    # PluginEditorLayout.h's org-emblem docs for the full circle-fit +
+    # colour-threshold extraction technique, which mirrors how
+    # rose-emblem-v4.png was itself built.
+    resources/gui/org-emblem.png
+    # Rotating knob discs (v0.3.9, item 4) - INNER-DISC variant, gate-approved
+    # 2026-07-25: nine 85x85 RGBA discs, one per knob, extracted directly from
+    # master-05.png's own baked pixels (colour data is an unresampled 1:1
+    # crop, per-knob centre from
+    # .scaffold/gui-assets/faceplate-silentium-v3/knob-discs-manifest.json).
+    # Alpha is cut at 80% of each knob's own fitted radius, so only the
+    # pointer notch + inner knurl are visible when this disc is drawn
+    # rotated live (PluginEditor.cpp's paint()) - the baked outer rim AND its
+    # specular crescent stay part of the static master-05 plate underneath,
+    # which is what rules out a co-rotating highlight (the defect the
+    # PLAIN full-disc variant hit in the rotation proof; see the manifest's
+    # own "innerVariant" record for the measured notch/highlight radii this
+    # 80% cutoff was chosen from). The manifest .json itself is NOT embedded
+    # (provenance only) - its per-knob centre/radius values are hardcoded as
+    # constants in PluginEditor.cpp's knobDiscLayout table instead.
+    resources/gui/knob-disc-0-inner.png
+    resources/gui/knob-disc-1-inner.png
+    resources/gui/knob-disc-2-inner.png
+    resources/gui/knob-disc-3-inner.png
+    resources/gui/knob-disc-4-inner.png
+    resources/gui/knob-disc-5-inner.png
+    resources/gui/knob-disc-6-inner.png
+    resources/gui/knob-disc-7-inner.png
+    resources/gui/knob-disc-8-inner.png
     # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
     # for every JUCE-drawn text surface.
     resources/fonts/EBGaramond-Regular.ttf

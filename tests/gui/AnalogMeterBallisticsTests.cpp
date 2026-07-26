@@ -95,4 +95,21 @@ TEST_CASE ("AnalogMeter::tickAngleDegreesForDb interpolates the baked tick table
         CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-26.80f));
         CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (40.39f));
     }
+
+    SECTION ("idle-rest fix: any target at/below -20dB clamps to the exact same resting angle")
+    {
+        // The GUI sign-off requirement ("both VU needles must rest exactly
+        // on the -20 tick at idle") is really a statement about this clamp:
+        // PluginProcessor's idle-floor default (-100dB, see PluginProcessor.h)
+        // and AnalogMeter's own construction-time default (targetDb/
+        // smoothedDb = -100.0f) both need to land on IDENTICAL geometry to
+        // the -20 tick itself, not merely "close" - this asserts that
+        // equivalence directly rather than trusting two independently
+        // re-typed -26.80f literals to stay in sync.
+        const auto restAngle = AnalogMeter::tickAngleDegreesForDb (-20.0f);
+
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-100.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (restAngle));
+    }
 }

@@ -195,6 +195,17 @@ void SilentiumAudioProcessor::releaseResources()
 void SilentiumAudioProcessor::reset()
 {
     engine.reset();
+
+    // Idle-rest fix: many hosts call reset() on transport stop/suspend, a
+    // point after which processBlock() may not fire again for an arbitrary
+    // amount of time - without this, a loud reading captured in the last
+    // block right before the stop would persist on the meters indefinitely.
+    // Re-parking both atomics to the same <= -20 dB floor the constructor's
+    // own defaults use (see PluginProcessor.h's docs) converges the GUI
+    // needles back to the -20 tick as soon as the editor's next timer tick
+    // reads them, independent of whatever the engine was doing a moment ago.
+    meterGainReductionDb.store (-100.0f, std::memory_order_relaxed);
+    meterInputLevelDb.store (-100.0f, std::memory_order_relaxed);
 }
 
 bool SilentiumAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

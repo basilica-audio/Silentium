@@ -42,6 +42,78 @@ namespace
         KnobLayoutEntry { ParamIDs::knee, "Knee", knobRow2X1x[3], knobRow2Y1x },
     };
 
+    // v0.3.9 (item 4, gate-approved INNER-DISC variant): per-knob rotating-
+    // disc draw geometry, copied verbatim from .scaffold/gui-assets/
+    // faceplate-silentium-v3/knob-discs-manifest.json's per-knob
+    // refinedCentre1xPx/diameter1xPx fields (NOT parsed from that .json at
+    // runtime - paint()/resized() below must not touch the filesystem).
+    // INDEX-MATCHED to knobLayout/knobs above (same 0..8 physical knob
+    // order - Threshold..Range then Lookahead..Knee - verified against
+    // knobLayout's own layout-table centres, which agree to within ~1.7px
+    // @1x). Deliberately NOT the same numbers as knobRow1X1x/knobRow2X1x/
+    // knobRow1Y1x/knobRow2Y1x above: those integer layout-table centres
+    // position the INTERACTIVE (transparent) juce::Slider hit-area, which
+    // tests/gui/EditorLayoutTests.cpp's Layout-Invariante tests assert
+    // row-Y equality and uniform diameter against - this table is the
+    // baked disc art's own sub-pixel measured centre/diameter, used only
+    // for the VISUAL rotating-disc draw below, never for hit-testing.
+    struct KnobDiscEntry
+    {
+        float centreX1x;
+        float centreY1x;
+        float diameter1x; // full fitted disc diameter (the notch/knurl content is already alpha-cut to 80% of this within the asset - see the .png's own provenance docs in CMakeLists.txt)
+    };
+
+    constexpr std::array<KnobDiscEntry, 9> knobDiscLayout {
+        KnobDiscEntry { 270.427f, 380.150f, 52.520f }, // Threshold
+        KnobDiscEntry { 360.071f, 380.293f, 52.060f }, // Attack
+        KnobDiscEntry { 449.359f, 380.293f, 52.090f }, // Hold
+        KnobDiscEntry { 538.932f, 380.364f, 52.160f }, // Release
+        KnobDiscEntry { 628.718f, 379.723f, 52.962f }, // Range
+        KnobDiscEntry { 315.427f, 454.272f, 52.230f }, // Lookahead
+        KnobDiscEntry { 404.786f, 454.628f, 52.162f }, // SC HPF
+        KnobDiscEntry { 494.573f, 454.699f, 51.938f }, // SC LPF
+        KnobDiscEntry { 584.003f, 454.272f, 52.636f }, // Knee
+    };
+
+    // Knob-disc canvas -> @1x scale factor. The 9 knob-disc-N-inner.png
+    // crops are native, UNRESAMPLED 1:1 MASTER-PX crops (85x85, see
+    // CMakeLists.txt's asset docs and the manifest's own "scaleChain" note)
+    // - unlike knobDiscLayout's centreX1x/centreY1x/diameter1x fields
+    // above, the RAW IMAGE PIXELS are not already expressed in this file's
+    // @1x plate coordinate system, so drawing them at the correct on-screen
+    // size requires this conversion. Identical to
+    // plateWidth1x/masterCanvasWidthPx (900/1264 = 0.712025 = the
+    // manifest's own "masterPxToOneXPx") - the SAME master->@1x factor
+    // toMasterPxRect() above already uses (in its inverse direction) for
+    // every other master-render-derived asset in this file. Deliberately
+    // NOT `entry.diameter1x / imageWidthPx` (85px) - diameter1x is the
+    // FITTED DISC's own diameter, a small fraction of the full 85px canvas
+    // (contentDiameterFraction ~=0.86 per the manifest), so dividing by the
+    // whole canvas width there would undersize the drawn disc by roughly
+    // 1/0.86 =~ 15% - exactly the bug an earlier draft of this revision
+    // shipped, which left a sliver of the static master-05 art (including
+    // its OWN baked rest-pose notch) visible just inside the rotating
+    // disc's own edge at every non-rest rotation angle.
+    constexpr float knobDiscCanvasToOneXScale = (float) plateWidth1x / (float) masterCanvasWidthPx;
+
+    // Normalised slider proportion [0,1] -> rotation angle in degrees,
+    // clockwise from straight up - 0.5 = 12 o'clock = the baked rest pose
+    // (matches every knob's own drawn position in master-05.png, so a knob
+    // left at its default value shows no visible seam between the rotating
+    // inner disc and the static baked art around it). Range approved
+    // against the rotation proof (item 4 brief) - wider than
+    // RotatingImageKnob's older -135..+135deg sweep (a different, now-
+    // unused single-image-rotation component, see that class's own docs).
+    constexpr float knobDiscMinAngleDeg = -140.0f;
+    constexpr float knobDiscMaxAngleDeg = 140.0f;
+
+    float knobDiscAngleDegrees (double normalisedValue) noexcept
+    {
+        const auto clamped = juce::jlimit (0.0, 1.0, normalisedValue);
+        return knobDiscMinAngleDeg + (float) clamped * (knobDiscMaxAngleDeg - knobDiscMinAngleDeg);
+    }
+
     struct ToggleLayoutEntry
     {
         const char* parameterId;
@@ -57,20 +129,52 @@ namespace
     // Vent-glow ballistics/flicker (mirrors AnalogMeter's own bulb-glow
     // technique, see Flicker.h) - deliberately slower (150ms tau) than the
     // meters' 300ms dial ballistics would suggest sped up, and a SUBTLE
-    // flicker amplitude within Yves' explicit +/-3-5% brief (never the
-    // wider swing AnalogMeter's dial glow uses).
+    // fast-flicker amplitude on top of the idle-breathing baseline below
+    // (never the wider swing AnalogMeter's dial glow uses for its own
+    // primary layer).
     constexpr float ventGlowTauSeconds = 0.15f;
     constexpr float ventGlowFlickerAmplitude = 0.04f;
 
     // Input-level range mapped to the vent-glow mix: below ventGlowFloorDb
-    // the tubes read as idling (mix 0, master-glow-dim.png), at/above
-    // ventGlowCeilingDb they read at their normal baked glow (mix 1,
-    // master-05.png's own level - the hard ceiling Yves approved, see
+    // the tubes read as idling (SIGNAL-DRIVEN push = 0, see
+    // ventGlowIdleBreath* below for why the mix itself is NOT 0 at idle),
+    // at/above ventGlowCeilingDb they read at their normal baked glow (mix
+    // 1, master-05.png's own level - the hard ceiling Yves approved, see
     // PluginEditor.cpp's paint() docs). Deliberately independent of the two
     // AnalogMeter dials' own dB scale - this is a coarse "is there signal at
     // all" indicator, not a precision meter.
     constexpr float ventGlowFloorDb = -40.0f;
     constexpr float ventGlowCeilingDb = -6.0f;
+
+    // v0.3.9 (item 5 fix): idle-breathing baseline. The ORIGINAL vent-glow
+    // mix was `signalDrivenPush * fastFlicker` - at true silence the
+    // signal-driven push is exactly 0, and 0 times any flicker multiplier
+    // is still 0, which is exactly why the vents read as "not flickering at
+    // all" at idle (Yves' explicit complaint). This slow, non-harmonic
+    // multi-sine wander (Flicker.h's slowDriftLayers table - the SAME
+    // "two time scales" idea item 5 also applies to the VU bulb glow) is
+    // unconditional and ADDED to the signal-driven push in
+    // updateVentGlowMix() below, so idle now breathes across
+    // ventGlowIdleBreathCentre +/- ventGlowIdleBreathHalfRange = 0.55..0.80
+    // on its own, with the signal still free to push further toward the
+    // t=1.0 ceiling under load (the final jlimit(0,1) there is the SAME
+    // hard master-05 ceiling as before - there is still no third, brighter
+    // frame to draw, so this can never exceed the approved baked level).
+    //
+    // v0.3.10 (final sign-off pass, "etwas deutlicher"/"a bit more
+    // noticeable" - Yves): both the centre and half-range widened again
+    // (0.675/0.125 -> 0.65/0.20) for a deeper, more visible idle breath -
+    // the hard jlimit(0,1) ceiling above still guarantees this can never
+    // read brighter than master-05's own baked "normal" glow.
+    constexpr float ventGlowIdleBreathCentre = 0.65f;
+    constexpr float ventGlowIdleBreathHalfRange = 0.20f; // 0.65 +/- 0.20 = 0.45..0.85
+
+    // Distinct phase seed from the fast-flicker call below (phaseSeed 0.0f)
+    // and from each AnalogMeter's own phase seeds (0.0f/1.0f, a different
+    // visual element entirely) - the three independently-flickering
+    // elements (2 VU bulbs + this vent-glow idle wander) must never read as
+    // correlated/synchronised.
+    constexpr float ventGlowIdlePhaseSeed = 5.0f;
 
     juce::Image loadImage (const char* data, int size)
     {
@@ -131,6 +235,14 @@ namespace
     constexpr float ledContentDiameterFraction = 18.0f / 64.0f;
     constexpr float ledImageDrawSize1x = ledCoreDiameter1x / ledContentDiameterFraction;
 
+    // Org emblem sprite geometry inside org-emblem.png's own 1024x1024
+    // canvas: orgEmblemContentDiameterFraction (PluginEditorLayout.h) is the
+    // visible medallion's own diameter as a fraction of that full canvas -
+    // orgEmblemImageDrawSize1x is the WHOLE image's own draw diameter @1x,
+    // back-derived (same convention as ledImageDrawSize1x above) so the
+    // medallion itself lands at exactly orgEmblemDiameter1x on screen.
+    constexpr float orgEmblemImageDrawSize1x = orgEmblemDiameter1x / orgEmblemContentDiameterFraction;
+
     // Converts a layout-table rectangle (@1x plate-local units, the
     // PluginEditorLayout.h table's own coordinate frame) into the matching
     // rectangle within the MASTER render's own 1264x848 pixel space - i.e.
@@ -170,6 +282,33 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     masterToggleDown = loadImage (BinaryData::master06_png, BinaryData::master06_pngSize);
     masterGlowDim = loadImage (BinaryData::masterglowdim_png, BinaryData::masterglowdim_pngSize);
     ledImage = loadImage (BinaryData::ledmasterdiff_png, BinaryData::ledmasterdiff_pngSize);
+    orgEmblemImage = loadImage (BinaryData::orgemblem_png, BinaryData::orgemblem_pngSize);
+
+    // v0.3.9 (item 4): the 9 rotating knob-disc overlays, index-matched to
+    // knobLayout/knobDiscLayout above (0=Threshold..8=Knee) - a local
+    // {data,size} table rather than a named anonymous-namespace array,
+    // since BinaryData's per-asset `Size` constants are non-constexpr
+    // (namespace-scope `const int`, not usable in a constexpr array
+    // initialiser at file scope) but are perfectly fine read here at
+    // runtime, once, in the constructor.
+    const struct
+    {
+        const char* data;
+        int size;
+    } knobDiscBinaryAssets[9] = {
+        { BinaryData::knobdisc0inner_png, BinaryData::knobdisc0inner_pngSize },
+        { BinaryData::knobdisc1inner_png, BinaryData::knobdisc1inner_pngSize },
+        { BinaryData::knobdisc2inner_png, BinaryData::knobdisc2inner_pngSize },
+        { BinaryData::knobdisc3inner_png, BinaryData::knobdisc3inner_pngSize },
+        { BinaryData::knobdisc4inner_png, BinaryData::knobdisc4inner_pngSize },
+        { BinaryData::knobdisc5inner_png, BinaryData::knobdisc5inner_pngSize },
+        { BinaryData::knobdisc6inner_png, BinaryData::knobdisc6inner_pngSize },
+        { BinaryData::knobdisc7inner_png, BinaryData::knobdisc7inner_pngSize },
+        { BinaryData::knobdisc8inner_png, BinaryData::knobdisc8inner_pngSize },
+    };
+
+    for (size_t i = 0; i < knobDiscImages.size(); ++i)
+        knobDiscImages[i] = loadImage (knobDiscBinaryAssets[i].data, knobDiscBinaryAssets[i].size);
 
     ventGlowStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0;
     ventGlowSmoothedInputDb = audioProcessor.getInputLevelDb();
@@ -214,6 +353,16 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
         knobs[i].slider->setColour (juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);
         knobs[i].slider->setColour (juce::Slider::thumbColourId, juce::Colours::transparentBlack);
         configureKnob (knobs[i], entry.parameterId, entry.labelText);
+
+        // v0.3.9 (item 4): repaint just this knob's own rotating-disc region
+        // when its value changes - SliderAttachment (constructed inside
+        // configureKnob() above) wires itself via juce::Slider::addListener,
+        // never Slider::onValueChange (verified against JUCE 8.0.14's
+        // juce_ParameterAttachments.cpp), so setting onValueChange here is
+        // never clobbered by/never clobbers the attachment. Captures `i` by
+        // value (this loop's own size_t, not the KnobLayoutEntry reference),
+        // so each of the 9 lambdas closes over its own distinct index.
+        knobs[i].slider->onValueChange = [this, i] { repaint (knobDiscRepaintBounds[i]); };
     }
 
     // Footer toggles (Duck, Listen): BAKED into master-05 in the UP/on
@@ -351,12 +500,90 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     // rose flourish, both VU dial faces (empty), all 9 knobs at rest, both
     // toggles UP, and both tube-vent grilles at normal glow - nothing else
     // is drawn for any of those elements. When every toggle is ON and the
-    // vent-glow mix is at its ceiling (steps 2-3 below both become no-ops),
-    // this is the ENTIRE plate render, exactly matching master-05.png.
+    // vent-glow mix is at its ceiling (steps 4-5 below both become no-ops),
+    // this is the ENTIRE plate render EXCEPT the rotating knob discs (step 2
+    // - a genuinely new, always-drawn overlay, see that step's own docs for
+    // why it never creates a visible seam against master-05.png underneath).
     if (masterBaseline.isValid())
         g.drawImage (masterBaseline, plateBounds, juce::RectanglePlacement::centred, false);
 
-    // 2. Toggle-Zone overlay: for each toggle that is OFF, blit that
+    // 2. Rotating knob discs (v0.3.9, item 4, gate-approved INNER-DISC
+    // variant) - drawn immediately on top of the baseline plate, one per
+    // knob, at that knob's own manifest-measured centre (knobDiscLayout
+    // above - sub-pixel, NOT the integer layout-table centres the
+    // interactive juce::Slider hit-areas use) and current rotation angle.
+    // Each disc's own alpha is already cut to 80% of its fitted radius (see
+    // CMakeLists.txt's asset docs), so only the pointer notch + inner
+    // knurl are visible/rotating here - the baked outer rim + specular
+    // crescent underneath (part of masterBaseline, drawn in step 1 above)
+    // are never touched, which is what structurally rules out a co-rotating
+    // highlight or a double-knob artifact. The full 85x85 native-master-px
+    // canvas is drawn at knobDiscCanvasToOneXScale (NOT diameter1x/85 - see
+    // that constant's own docs for why that would undersize the disc) - the
+    // 80% cutoff lives entirely in the asset's own alpha, not in this draw
+    // call's scale.
+    for (size_t i = 0; i < knobDiscLayout.size(); ++i)
+    {
+        if (! knobDiscImages[i].isValid() || knobs[i].slider == nullptr)
+            continue;
+
+        const auto& entry = knobDiscLayout[i];
+        const auto& image = knobDiscImages[i];
+
+        const auto centre = juce::Point<float> (plateOrigin.x + s (entry.centreX1x), plateOrigin.y + s (entry.centreY1x));
+
+        const auto proportion = knobs[i].slider->valueToProportionOfLength (knobs[i].slider->getValue());
+        const auto angleDeg = knobDiscAngleDegrees (proportion);
+        const auto radians = juce::degreesToRadians (angleDeg);
+
+        const auto imageHalfW = (float) image.getWidth() * 0.5f;
+        const auto imageHalfH = (float) image.getHeight() * 0.5f;
+        const auto imageScale = s (knobDiscCanvasToOneXScale);
+
+        const auto transform = juce::AffineTransform::translation (-imageHalfW, -imageHalfH)
+                                    .scaled (imageScale)
+                                    .rotated (radians)
+                                    .translated (centre.x, centre.y);
+
+        g.drawImageTransformed (image, transform);
+    }
+
+    // 3. Org emblem overlay (Basilica Audio rose-window medallion) - drawn
+    // right after the baseline plate + knob discs and before every other
+    // overlay, so it always sits UNDER the toggle-zone/vent-glow/LED layers
+    // (none of which spatially overlap it, but this keeps z-order intent
+    // explicit).
+    // Not baked into master-05 (see PluginEditorLayout.h's orgEmblemCentre1x
+    // docs for why/provenance). A soft drop shadow is drawn FIRST, offset
+    // down-right (light source upper-left, matching every other mounted
+    // element's shadow convention) so the medallion reads as sitting ON the
+    // plate like the VU bezels do, not floating - deliberately restrained
+    // (single radial-gradient ellipse, alpha capped well below a "floating"
+    // look), per the suite's GUI-BASELINE rule.
+    if (orgEmblemImage.isValid())
+    {
+        const auto emblemCentre = juce::Point<float> (plateOrigin.x + s (orgEmblemCentre1x.x),
+                                                       plateOrigin.y + s (orgEmblemCentre1x.y));
+        const auto emblemRadius = s (orgEmblemDiameter1x) * 0.5f;
+
+        const auto shadowCentre = emblemCentre.translated (s (4.0f), s (4.0f));
+        const auto shadowRadius = emblemRadius * 1.18f;
+
+        juce::ColourGradient orgShadowGradient (juce::Colours::black.withAlpha (0.35f),
+                                                shadowCentre.x, shadowCentre.y,
+                                                juce::Colours::transparentBlack,
+                                                shadowCentre.x + shadowRadius, shadowCentre.y,
+                                                true);
+        orgShadowGradient.addColour (0.7, juce::Colours::black.withAlpha (0.16f));
+
+        g.setGradientFill (orgShadowGradient);
+        g.fillEllipse (juce::Rectangle<float> (shadowRadius * 2.0f, shadowRadius * 2.0f).withCentre (shadowCentre));
+
+        const auto drawSize = s (orgEmblemImageDrawSize1x);
+        g.drawImage (orgEmblemImage, juce::Rectangle<float> (drawSize, drawSize).withCentre (emblemCentre));
+    }
+
+    // 4. Toggle-Zone overlay: for each toggle that is OFF, blit that
     // toggle's own zone crop from master-06.png (toggles pointing DOWN) over
     // the master-05 background just drawn - independently per toggle, so
     // one can be down while the other stays up. ON toggles are a no-op
@@ -380,7 +607,7 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
-    // 3. Vent-glow layer (SUBTLE - Yves-mandated ceiling, see this editor's
+    // 5. Vent-glow layer (SUBTLE - Yves-mandated ceiling, see this editor's
     // header docs): the only two frames are master-glow-dim.png (low
     // signal) and master-05.png itself (the approved baseline "normal"
     // glow, already drawn in step 1). ventGlowMix in [0,1] - computed in
@@ -410,7 +637,7 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
-    // 4. Peak LEDs (v0.3.6) - a SMALL red lamp sitting ON THE PLATE, outside
+    // 6. Peak LEDs (v0.3.6) - a SMALL red lamp sitting ON THE PLATE, outside
     // each dial's own bezel, at its upper-left (per Yves' master-03
     // reference - see PluginEditorLayout.h's ledLCentre1x/ledRCentre1x docs
     // for the extraction/measurement this position comes from). Drawn HERE,
@@ -441,9 +668,10 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
 
     // (VU needle/glow overlays are separate AnalogMeter child components,
     // drawn after this method returns - see resized() for their bounds.
-    // Everything else - rose flourish, screws, knob discs, both VU faces,
-    // tube-vent structure - stays BAKED in master-05, no draw calls for any
-    // of it.)
+    // Everything else - rose flourish, screws, the knob discs' own baked
+    // OUTER rim + specular crescent, both VU faces, tube-vent structure -
+    // stays BAKED in master-05, no draw calls for any of it; only each
+    // knob's small INNER notch/knurl disc (step 2 above) is a live overlay.)
 }
 
 void SilentiumAudioProcessorEditor::resized()
@@ -523,6 +751,64 @@ void SilentiumAudioProcessorEditor::resized()
 
     ledLRepaintBounds = toLedRect (ledLCentre1x);
     ledRRepaintBounds = toLedRect (ledRCentre1x);
+
+    // v0.3.9 (item 4): the 9 rotating knob discs' own repaint bounds - same
+    // "square box at the manifest centre, plus a few scaled px of AA
+    // margin" convention as toLedRect() above, sized from each knob's own
+    // fitted diameter (knobDiscLayout, not the shared knobDiameter1x layout
+    // constant) so a knob whose baked disc happens to be a couple of px
+    // larger than average still gets a fully-covering repaint region.
+    const auto toKnobDiscRect = [&] (const KnobDiscEntry& entry)
+    {
+        const auto drawSize = juce::roundToInt ((entry.diameter1x + 4.0f) * scale);
+        const auto centrePx = toPlatePoint ({ (int) std::lround (entry.centreX1x), (int) std::lround (entry.centreY1x) });
+        return juce::Rectangle<int> (drawSize, drawSize).withCentre (centrePx);
+    };
+
+    for (size_t i = 0; i < knobDiscLayout.size(); ++i)
+        knobDiscRepaintBounds[i] = toKnobDiscRect (knobDiscLayout[i]);
+}
+
+void SilentiumAudioProcessorEditor::updateVentGlowMix() noexcept
+{
+    // Slow (150ms) ballistic follow of the input level, mapped to [0,1]
+    // across ventGlowFloorDb..ventGlowCeilingDb - the SIGNAL-DRIVEN
+    // component only (see this file's top-of-file docs for why this range
+    // is independent of the meters' own dB scale).
+    constexpr float dt = 1.0f / 30.0f;
+    ventGlowSmoothedInputDb = basilica::gui::AnalogMeter::stepBallistics (
+        ventGlowSmoothedInputDb, audioProcessor.getInputLevelDb(), dt, ventGlowTauSeconds);
+
+    const auto signalPush = juce::jlimit (0.0f, 1.0f,
+        juce::jmap (ventGlowSmoothedInputDb, ventGlowFloorDb, ventGlowCeilingDb, 0.0f, 1.0f));
+
+    const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+
+    // v0.3.9 (item 5 fix): idle-breathing baseline - unconditional (not
+    // gated by signal level at all), Flicker.h's slowDriftLayers table,
+    // its own distinct phase seed. flickerMultiplier() with amplitude 1.0f
+    // returns 1.0 +/- (a weighted sine sum guaranteed inside [-1,1], since
+    // the layer weights sum to 1.0 - see Flicker.h's own docs); subtracting
+    // 1.0f strips that centring, leaving a raw wander term in [-1,1] to
+    // scale by ventGlowIdleBreathHalfRange around its own centre.
+    const auto idleWanderUnit = basilica::gui::flickerMultiplier (
+        now, ventGlowStartTimeSeconds, ventGlowIdlePhaseSeed, 1.0f, basilica::gui::slowDriftLayers) - 1.0f;
+    const auto idleBreath = ventGlowIdleBreathCentre + ventGlowIdleBreathHalfRange * idleWanderUnit;
+
+    // Fast flicker jitter - Flicker.h's standard (faster) 3-layer table,
+    // own phase seed (0.0f, distinct from ventGlowIdlePhaseSeed above and
+    // from each AnalogMeter's own 0.0f/1.0f seeds).
+    const auto flicker = basilica::gui::flickerMultiplier (now, ventGlowStartTimeSeconds, 0.0f, ventGlowFlickerAmplitude);
+
+    // Idle breathing is ADDED to the signal-driven push (not multiplied,
+    // and not max()'d - a loud signal genuinely pushes the glow further
+    // past wherever the idle breath happens to sit at that instant, exactly
+    // matching a real tube amp's glow: the idle warmth doesn't vanish just
+    // because a transient briefly pushes it toward full), then the whole
+    // sum is scaled by the fast flicker jitter and clamped to the SAME hard
+    // [0,1] ceiling as before - master-05's own baked "normal" glow level
+    // can still never be exceeded (no third, brighter frame exists to draw).
+    ventGlowMix = juce::jlimit (0.0f, 1.0f, (idleBreath + signalPush) * flicker);
 }
 
 void SilentiumAudioProcessorEditor::timerCallback()
@@ -530,22 +816,7 @@ void SilentiumAudioProcessorEditor::timerCallback()
     gainReductionMeter.setTargetDb (audioProcessor.getGainReductionDb());
     inputLevelMeter.setTargetDb (audioProcessor.getInputLevelDb());
 
-    // Vent-glow mix: slow (150ms) ballistic follow of the input level,
-    // mapped to [0,1] across ventGlowFloorDb..ventGlowCeilingDb, then a
-    // small flicker jitter (+/-4%, within Yves' +/-3-5% brief) - see this
-    // file's top-of-file docs for why this range is independent of the
-    // meters' own dB scale.
-    constexpr float dt = 1.0f / 30.0f;
-    ventGlowSmoothedInputDb = basilica::gui::AnalogMeter::stepBallistics (
-        ventGlowSmoothedInputDb, audioProcessor.getInputLevelDb(), dt, ventGlowTauSeconds);
-
-    const auto baseMix = juce::jlimit (0.0f, 1.0f,
-        juce::jmap (ventGlowSmoothedInputDb, ventGlowFloorDb, ventGlowCeilingDb, 0.0f, 1.0f));
-
-    const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-    const auto flicker = basilica::gui::flickerMultiplier (now, ventGlowStartTimeSeconds, 0.0f, ventGlowFlickerAmplitude);
-    ventGlowMix = juce::jlimit (0.0f, 1.0f, baseMix * flicker);
-
+    updateVentGlowMix();
     repaint (ventGlowRepaintBounds);
 
     // v0.3.6: the peak LEDs are drawn by THIS editor's own paint() now (see
@@ -557,6 +828,19 @@ void SilentiumAudioProcessorEditor::timerCallback()
     // above - never a full-plate repaint).
     repaint (ledLRepaintBounds);
     repaint (ledRRepaintBounds);
+}
+
+void SilentiumAudioProcessorEditor::recomputeVentGlowForPreview() noexcept
+{
+    updateVentGlowMix();
+    repaint (ventGlowRepaintBounds);
+}
+
+void SilentiumAudioProcessorEditor::setVentGlowElapsedSecondsForPreview (double elapsedSeconds) noexcept
+{
+    ventGlowStartTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0 - elapsedSeconds;
+    updateVentGlowMix();
+    repaint (ventGlowRepaintBounds);
 }
 
 void SilentiumAudioProcessorEditor::setVentGlowMixForPreview (float t) noexcept

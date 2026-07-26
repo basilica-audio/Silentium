@@ -148,6 +148,68 @@ namespace slnt::layout
     const juce::Point<int> roseCentre1x { 451, 323 };
     constexpr int roseDiameter1x = 150;
 
+    // Org emblem (Basilica Audio rose-window medallion) - v0.3.8 addition,
+    // drawn as its own overlay by PluginEditor.cpp's paint() (NOT baked into
+    // master-05, unlike roseCentre1x's thin flourish line above). Sits
+    // centred in the empty plate gap between the two VU dial bezels.
+    //
+    // X: exactly midway between the two meter component centres -
+    // meterL centre x = meterLTopLeft1x.x + meterComponentSize1x/2 = 228.5,
+    // meterR centre x = meterRTopLeft1x.x + meterComponentSize1x/2 = 670.5,
+    // midpoint = 449.5, rounded to 450.
+    // Y: placed, then verified, against a fresh render of the dial region
+    // (see build/org-emblem-zoom.png) so the medallion sits balanced in the
+    // dark plate gap between the two bezels without touching either or
+    // fouling the plate's diagonal glossy reflection sheen.
+    // orgEmblemDiameter1x (105) is its own independently-chosen circular
+    // draw size (the size class of the master-04 generation's now-unused
+    // rose-emblem-v4.png overlay) - unrelated to roseDiameter1x (150) above,
+    // which is a bounding-box WIDTH for a thin flourish line, not a
+    // like-for-like circular medallion measurement.
+    //
+    // Source asset provenance: resources/gui/org-emblem.png is extracted
+    // (never hand-authored) from brand/v2-plastic/raw/org.png (repo-relative
+    // to the suite root, one level above this repo) - the Basilica Audio
+    // org-level rose-window emblem shared across the whole plugin suite.
+    // That source is a 1024x1024 RGB render: a gold/bronze rose-window
+    // medallion mounted on an opaque black rounded-square (squircle) plate,
+    // NOT already circularly cut out (brand/v2-plastic/cut/org.png, the
+    // suite's usual pre-cut app-icon export, was rejected for this purpose
+    // for exactly that reason - it carries the same squircle backing, see
+    // this revision's handoff notes). Extraction: (1) circle-fit the
+    // medallion's own OUTER gold-ring edge - Kasa least-squares fit on
+    // ray-cast edge points (outward scan per angle for the last strong
+    // gold->background transition), centre (510.0, 517.0), radius 337.0 px
+    // in the source's own 1024x1024 canvas, verified against multiple
+    // independent zoomed crops; (2) cut a circular disc at that radius
+    // (~1px feather); (3) colour-threshold INSIDE the disc (gold/warm pixels
+    // opaque, the dark tracery openwork holes AND the surrounding squircle
+    // mounting plate transparent) so the Silentium faceplate itself shows
+    // through the medallion's own pierced tracery once mounted - exactly
+    // mirroring how the master-04 generation's rose-emblem-v4.png was itself
+    // built (colour-thresholded gold vs that source's dark squircle
+    // mounting plate; see that asset's own near-binary alpha histogram). A
+    // fully-opaque-disc-interior variant was also produced and compared
+    // side by side; the colour-thresholded variant was chosen both for this
+    // precedent-consistency and because it reads as more physically mounted
+    // (the openwork actually shows plate through it) at the ~105px final
+    // draw size. Ray-cast circularity check on the final cutout: outer
+    // radius std/mean ~=0.3% across 180 sampled angles (334-338px range,
+    // mean 335.7px) - the same control-check convention used to confirm
+    // rose-emblem-v4.png's own circularity (std/mean ~=1.5%).
+    // orgEmblemContentDiameterFraction is the visible medallion's own
+    // diameter as a fraction of org-emblem.png's full 1024px canvas
+    // (672/1024) - PluginEditor.cpp's ledContentDiameterFraction/
+    // ledImageDrawSize1x pair for the peak-LED sprite uses the identical
+    // back-derivation convention (canvas content fraction -> draw size that
+    // lands the VISIBLE content, not the full image, at the nominal on-plate
+    // diameter); this constant lives here (rather than alongside the LED's
+    // own pair in PluginEditor.cpp's anonymous namespace) purely because the
+    // org emblem's other two geometry constants belong here.
+    const juce::Point<float> orgEmblemCentre1x { 450.0f, 227.5f };
+    constexpr float orgEmblemDiameter1x = 105.0f;
+    constexpr float orgEmblemContentDiameterFraction = 672.0f / 1024.0f;
+
     // Four corner screws - BAKED into master-05, no draw call. Kept for the
     // same reason as roseCentre1x/roseDiameter1x above.
     const std::array<juce::Point<int>, 4> screwCentres1x {

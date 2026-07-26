@@ -137,7 +137,28 @@ namespace basilica::gui
     float AnalogMeter::currentFlickerMultiplier() const noexcept
     {
         const auto now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
-        return basilica::gui::flickerMultiplier (now, startTimeSeconds, flickerPhaseSeed, flickerAmplitudeFraction);
+
+        // Primary (fast) flicker - Flicker.h's standard 3-layer table,
+        // +-7% (flickerAmplitudeFraction), this instance's own phase seed.
+        const auto fast = basilica::gui::flickerMultiplier (now, startTimeSeconds, flickerPhaseSeed, flickerAmplitudeFraction);
+
+        // v0.3.9 (item 5): a second, much SLOWER drift layer (Flicker.h's
+        // slowDriftLayers table, +-3% flickerDriftAmplitudeFraction) ADDED
+        // on top of the fast multiplier's own 1.0-centred value (not
+        // multiplied - multiplying two independent +-1 centred quantities
+        // would halve the effective amplitude when both sit near their
+        // troughs simultaneously, which is not how a lamp filament's slow
+        // thermal drift plus fast micro-flicker actually combine). The
+        // "-1.0f" strips the +1.0 centring flickerMultiplier() itself
+        // returns, leaving just the drift term's own +-flickerDrift
+        // AmplitudeFraction contribution. flickerDriftPhaseOffset keeps the
+        // slow layer's phase distinct from the fast layer's even when both
+        // share the same flickerPhaseSeed.
+        const auto slow = basilica::gui::flickerMultiplier (now, startTimeSeconds, flickerPhaseSeed + flickerDriftPhaseOffset,
+                                                             flickerDriftAmplitudeFraction, basilica::gui::slowDriftLayers)
+                           - 1.0f;
+
+        return fast + slow;
     }
 
     void AnalogMeter::setImmediateDbForPreview (float db) noexcept
@@ -156,6 +177,12 @@ namespace basilica::gui
             ledAlpha = 0.0f;
         }
 
+        repaint();
+    }
+
+    void AnalogMeter::setFlickerElapsedSecondsForPreview (double elapsedSeconds) noexcept
+    {
+        startTimeSeconds = juce::Time::getMillisecondCounterHiRes() / 1000.0 - elapsedSeconds;
         repaint();
     }
 
