@@ -74,21 +74,42 @@ TEST_CASE ("AnalogMeter::tickAngleDegreesForDb interpolates the baked tick table
 {
     using basilica::gui::AnalogMeter;
 
-    // Exact table points (render_vu_dome_v1.py's TICKS, copied into
-    // AnalogMeter.cpp - the v0.3.1 ~93-degree circular-dome arc).
-    CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (-50.0f));
-    CHECK (AnalogMeter::tickAngleDegreesForDb (0.0f) == Catch::Approx (9.0f));
-    CHECK (AnalogMeter::tickAngleDegreesForDb (3.0f) == Catch::Approx (43.0f));
+    // Exact table points
+    // (.scaffold/gui-assets/faceplate-silentium-v3/faceplate-metadata.json's
+    // dB_angle_table_deg, measured directly on master-03-raw.png and copied
+    // into AnalogMeter.cpp - see that file's "_provenance" notes. NOT
+    // interchangeable with the earlier vu-nano-v1 asset's table - this
+    // master render's arc sits at measurably different angles).
+    CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (-26.80f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (0.0f) == Catch::Approx (18.02f));
+    CHECK (AnalogMeter::tickAngleDegreesForDb (3.0f) == Catch::Approx (40.39f));
 
     SECTION ("midpoint between two adjacent ticks interpolates linearly")
     {
-        // -10 -> -36deg, -7 -> -28deg; -8.5 is exactly halfway.
-        CHECK (AnalogMeter::tickAngleDegreesForDb (-8.5f) == Catch::Approx (-32.0f));
+        // -10 -> -15.40deg, -7 -> -6.29deg; -8.5 is exactly halfway.
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-8.5f) == Catch::Approx (-10.845f));
     }
 
     SECTION ("values beyond the table clamp to the nearest end, never extrapolate")
     {
-        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-50.0f));
-        CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (43.0f));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (-26.80f));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (12.0f) == Catch::Approx (40.39f));
+    }
+
+    SECTION ("idle-rest fix: any target at/below -20dB clamps to the exact same resting angle")
+    {
+        // The GUI sign-off requirement ("both VU needles must rest exactly
+        // on the -20 tick at idle") is really a statement about this clamp:
+        // PluginProcessor's idle-floor default (-100dB, see PluginProcessor.h)
+        // and AnalogMeter's own construction-time default (targetDb/
+        // smoothedDb = -100.0f) both need to land on IDENTICAL geometry to
+        // the -20 tick itself, not merely "close" - this asserts that
+        // equivalence directly rather than trusting two independently
+        // re-typed -26.80f literals to stay in sync.
+        const auto restAngle = AnalogMeter::tickAngleDegreesForDb (-20.0f);
+
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-100.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-60.0f) == Catch::Approx (restAngle));
+        CHECK (AnalogMeter::tickAngleDegreesForDb (-20.0f) == Catch::Approx (restAngle));
     }
 }

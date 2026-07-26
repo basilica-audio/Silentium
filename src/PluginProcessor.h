@@ -78,7 +78,23 @@ public:
 private:
     GateEngine engine;
 
-    std::atomic<float> meterGainReductionDb { 0.0f };
+    // Idle-rest fix: BOTH meter atomics must default (and, via reset()
+    // below, re-converge) to a value at/below -20 dB, the AnalogMeter dial's
+    // own tick-table floor (AnalogMeter.cpp's `ticks.front() == {-20dB,
+    // -26.80deg}`, clamped for anything <= -20 - see AnalogMeter::
+    // tickAngleDegreesForDb()) - so a freshly opened editor's needles rest
+    // exactly on the -20 tick before the engine has ever run, rather than
+    // wherever the previous default happened to map to.
+    //
+    // meterGainReductionDb previously defaulted to 0.0f (unity/fully-open),
+    // which maps to the dial's 0dB tick (+18.02deg) - visibly NOT at rest -
+    // for every instance between construction and this processor's own
+    // first processBlock() call (the gap a real host's editor spends before
+    // its first ~33ms GUI timer tick even asks). -100.0f matches
+    // meterInputLevelDb's own long-standing floor convention and GateEngine's
+    // closed-gate output range (Range defaults to -60dB, see
+    // ParameterLayout.cpp - always <= -20 for any in-range Range value).
+    std::atomic<float> meterGainReductionDb { -100.0f };
     std::atomic<float> meterInputLevelDb { -100.0f };
 
     // Raw atomic pointers into the APVTS-managed parameter values, resolved

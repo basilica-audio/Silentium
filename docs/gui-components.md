@@ -13,7 +13,7 @@ design review; the component ARCHITECTURE below is unchanged from the pilot.
 |---|---|---|
 | `FilmstripKnob` | `juce::Slider` (RotaryVerticalDrag) | `knob-brass-v2` 128-frame filmstrip |
 | `FilmstripToggle` | `juce::Button` | `toggle-brass-v2` 4-frame filmstrip (housed switch) |
-| `AnalogMeter` | `juce::Component` + `juce::Timer` | `vu-dome-v1` circular face/needle/glass |
+| `AnalogMeter` | `juce::Component` + `juce::Timer` | `vu-nano-v1` circular face/needle (v0.3.2; was `vu-dome-v1`) |
 | `BasilicaLookAndFeel` | `juce::LookAndFeel_V4` | EB Garamond type system + `button-brass-v1` 3-slice preset-bar caps |
 | `ImageDensity.h` | (free functions) | @1x/@2x tier selection shared by all |
 
@@ -36,15 +36,23 @@ together in one commit: `PluginEditorLayout.h`, the render script, and
 `juce::Label`s in the editor any more; accessible names live on the controls
 themselves (`setTitle`), unchanged.
 
+## v0.3.2 meter asset notes
+
+- **Meters are the nano-banana-approved Weston-style VU face** (`vu-nano-v1`,
+  promoted from Silentium as the reusable Basilica Audio VU component):
+  measured (not hand-tuned) 9-tick arc (-20 dB..+3 dB), amber-backlit dial,
+  needle pivot at canvas fraction (0.499838, 0.706359), visible bezel =
+  face_diameter_px/1024 (~79% of canvas, `contentFractionOfCanvas`) - see
+  `.scaffold/gui-assets/vu-nano-v1/README.md`. Single 1024px tier per layer
+  (no @1x/@2x pair, no separate glass decal - the face's own baked highlight
+  carries that read), and the needle is authored at rest pointing straight
+  up (0 deg), so `AnalogMeter` applies the measured tick angle directly as
+  the rotation with no rest-angle subtraction (unlike the superseded
+  `vu-dome-v1` family). The tick table in `AnalogMeter.cpp` is copied from
+  `vu-metadata.json`'s `tick_angle_at_db` and matches ONLY this face art.
+
 ## v0.3.1 asset notes
 
-- **Meters are circular glass domes** (`vu-dome-v1`): ~93° arc (-50°..+43°,
-  0 dB right-of-centre), amber-backlit dial, needle pivot at canvas fraction
-  (0.5, 0.71), visible bezel = 95% of canvas (`contentFractionOfCanvas`).
-  The v0.3.0 rectangular meters' dial art only filled HALF its canvas and
-  was upscaled ~2x at runtime - the root cause of the rejected soft/blurry
-  meter rendering. The tick table in `AnalogMeter.cpp` is copied from
-  `render_vu_dome_v1.py` and matches ONLY the dome art.
 - **`ImageDensity.h` never upscales any more** (tier margin 1.25 -> 1.0):
   any draw width beyond the @1x native size selects the @2x tier. With the
   stepped 100/150/200% scaling this means every tier choice is a downscale
