@@ -167,6 +167,96 @@ namespace slnt
             "Listen",
             false));
 
+        //======================================================================
+        // v0.4.0 parameters. Every default below is the exact-neutral value,
+        // i.e. the one that reproduces v0.3.x behaviour: a session or preset
+        // saved before v0.4.0 carries none of these keys, APVTS therefore
+        // leaves them at their defaults, and the render is unchanged (see
+        // tests/StateTests.cpp's cross-version golden test).
+        //======================================================================
+
+        //======================================================================
+        // Ratio: downward-expander law between Threshold and Range. The top
+        // of the range is the default and is displayed as an infinite ratio,
+        // because that is what a gate is: below Threshold the signal is
+        // pushed all the way to the Range floor. Reducing Ratio turns the
+        // gate into an expander, which is much gentler on decaying tails.
+        //
+        // Skew 0.4 spends most of the knob's travel on 1:1-5:1, where the
+        // musically interesting settings are; the sparse top end is a single
+        // detent-like destination (the gate).
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::ratio, 1 },
+            "Ratio",
+            juce::NormalisableRange<float> (1.0f, ParamConstants::maxRatio, 0.01f, 0.4f),
+            ParamConstants::maxRatio,
+            juce::AudioParameterFloatAttributes()
+                .withStringFromValueFunction ([] (float value, int)
+                {
+                    if (value >= ParamConstants::maxRatio - ParamConstants::ratioGateEpsilon)
+                        return juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x9e : 1 (Gate)"));
+
+                    return juce::String (value, 2) + " : 1";
+                })
+                .withValueFromStringFunction ([] (const juce::String& text)
+                {
+                    // Accepts "4.00 : 1", "4:1", plain "4", and the infinity
+                    // glyph the display function produces.
+                    if (text.containsIgnoreCase ("gate")
+                        || text.contains (juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x9e")))
+                        || text.containsIgnoreCase ("inf"))
+                        return ParamConstants::maxRatio;
+
+                    return text.upToFirstOccurrenceOf (":", false, false).trim().getFloatValue();
+                })));
+
+        //======================================================================
+        // Hysteresis: the open/close threshold gap, fixed at 3 dB internally
+        // before v0.4.0 - hence the default. 0 dB deliberately allows the two
+        // thresholds to coincide (the textbook chatter case) for users who
+        // want the tightest possible close on very clean material.
+        layout.add (std::make_unique<juce::AudioParameterFloat> (
+            juce::ParameterID { ParamIDs::hysteresis, 1 },
+            "Hysteresis",
+            juce::NormalisableRange<float> (0.0f, 12.0f, 0.1f),
+            3.0f,
+            juce::AudioParameterFloatAttributes().withLabel ("dB")));
+
+        //======================================================================
+        // Detector: Peak is the v0.3.x ballistics follower (index 0, the
+        // default); RMS is a fixed 5 ms mean-square window.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::detector, 1 },
+            "Detector",
+            juce::StringArray { "Peak", "RMS" },
+            0));
+
+        //======================================================================
+        // SC Slope: order of both sidechain filters. 12 dB/oct (index 0, the
+        // default) is the v0.3.x single-biquad pair.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::scSlope, 1 },
+            "SC Slope",
+            juce::StringArray { "12 dB/oct", "24 dB/oct" },
+            0));
+
+        //======================================================================
+        // Smooth Open: continuous opening ramp inside the lookahead window.
+        // Off by default (v0.3.x behaviour); adds no latency when on.
+        layout.add (std::make_unique<juce::AudioParameterBool> (
+            juce::ParameterID { ParamIDs::smoothOpen, 1 },
+            "Smooth Open",
+            false));
+
+        //======================================================================
+        // Release Shape: Exponential (index 0, the default) is the v0.3.x
+        // program-dependent approach; Linear is a constant-dB/s fade.
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { ParamIDs::releaseShape, 1 },
+            "Release Shape",
+            juce::StringArray { "Exponential", "Linear" },
+            0));
+
         return layout;
     }
 }

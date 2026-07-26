@@ -74,4 +74,79 @@ namespace ParamIDs
     // computer entirely, so the gate's actual trigger signal can be
     // auditioned while dialling in SC HPF/Threshold.
     inline constexpr auto listen = "listen";
+
+    //==========================================================================
+    // v0.4.0 additions. Same freeze rule as everything above: these IDs are
+    // now permanent. Every one of them defaults to the value that reproduces
+    // v0.3.x behaviour exactly, so a v0.3.x session or preset - which carries
+    // none of these keys - loads at exact-neutral settings and renders
+    // identically (tests/StateTests.cpp's golden-master test).
+
+    // Ratio: the downward-expander law applied between Threshold and Range.
+    // At the top of its range the gate takes the literal v0.3.x binary path
+    // (open or floored, nothing in between), which is what makes the
+    // neutrality guarantee a code-level branch rather than a numerical
+    // coincidence. Below that, the gain computer follows a continuous
+    // expander curve, so quiet material is attenuated proportionally instead
+    // of being switched off.
+    inline constexpr auto ratio = "ratio";
+
+    // Hysteresis: the gap between the open threshold (Threshold) and the
+    // close threshold (Threshold minus this value), previously a fixed
+    // internal 3 dB constant. Wider settings buy chatter immunity on
+    // material that hovers around Threshold; 0 dB makes the two thresholds
+    // coincide, which is the classic chatter case and is allowed
+    // deliberately.
+    inline constexpr auto hysteresis = "hysteresis";
+
+    // Detector: how the sidechain envelope is measured. Peak is the v0.3.x
+    // ballistics follower. RMS is a fixed 5 ms mean-square window, which
+    // tracks perceived loudness rather than instantaneous excursion and is
+    // markedly steadier on low-frequency material.
+    inline constexpr auto detector = "detector";
+
+    // SC Slope: the order of BOTH sidechain filters. 12 dB/oct is the v0.3.x
+    // single-biquad pair; 24 dB/oct cascades a second biquad per filter with
+    // true 4th-order Butterworth Q pairing, for a detection band with much
+    // harder edges.
+    inline constexpr auto scSlope = "scSlope";
+
+    // Smooth Open: shapes the opening gain trajectory inside the existing
+    // lookahead window so that even a 0 ms attack opens along a continuous
+    // ramp instead of a single-sample step. Adds no latency. No effect when
+    // Lookahead is 0.
+    inline constexpr auto smoothOpen = "smoothOpen";
+
+    // Release Shape: Exponential is the v0.3.x program-dependent approach.
+    // Linear closes at a constant dB/s rate, so a full-Range close takes
+    // exactly the Release time and the tail's decay rate stays constant -
+    // the behaviour a dB-linear VCA integrator produces.
+    inline constexpr auto releaseShape = "releaseShape";
+}
+
+// Numeric constants that the parameter layout and the DSP engine must agree
+// on exactly. They live here, next to the IDs, rather than being written out
+// twice: the "Ratio is at its maximum" test is what selects the literal
+// v0.3.x binary-gate code path in GateEngine, so a drift between the layout's
+// range and the engine's comparison would silently break neutrality.
+namespace ParamConstants
+{
+    // Top of the Ratio range, displayed as an infinite ratio.
+    inline constexpr float maxRatio = 20.0f;
+
+    // Tolerance for the "Ratio is at its maximum" comparison, wide enough to
+    // absorb the normalise/denormalise round-trip a host performs on the
+    // parameter value, far narrower than the 0.01 parameter step.
+    inline constexpr float ratioGateEpsilon = 0.001f;
+
+    // Choice indices, so the engine and the layout cannot disagree about
+    // which entry of a StringArray means what.
+    inline constexpr int detectorPeak = 0;
+    inline constexpr int detectorRms = 1;
+
+    inline constexpr int scSlope12 = 0;
+    inline constexpr int scSlope24 = 1;
+
+    inline constexpr int releaseShapeExponential = 0;
+    inline constexpr int releaseShapeLinear = 1;
 }
