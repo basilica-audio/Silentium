@@ -309,3 +309,239 @@ TEST_CASE ("reset() followed by processBlock does not crash", "[robustness]")
     CHECK_NOTHROW (processor.processBlock (buffer, midi));
     CHECK (TestHelpers::allSamplesFinite (buffer));
 }
+
+//==============================================================================
+// v0.4.0.
+//==============================================================================
+
+#include "AllocationGuard.h"
+
+#include <cmath>
+#include <vector>
+
+namespace
+{
+    // Turns on every v0.4.0 addition at once - the configuration with the most
+    // moving parts, and therefore the one worth guarding.
+    void engageEveryNewFeature (SilentiumAudioProcessor& processor)
+    {
+        setParam (processor, ParamIDs::threshold, -35.0f);
+        setParam (processor, ParamIDs::range, -60.0f);
+        setParam (processor, ParamIDs::attack, 0.0f);
+        setParam (processor, ParamIDs::hold, 20.0f);
+        setParam (processor, ParamIDs::release, 80.0f);
+        setParam (processor, ParamIDs::lookahead, 5.0f);
+        setParam (processor, ParamIDs::knee, 6.0f);
+        setParam (processor, ParamIDs::ratio, 3.0f);
+        setParam (processor, ParamIDs::hysteresis, 6.0f);
+
+        auto setChoiceOrToggle = [&processor] (const char* id, float normalised)
+        {
+            auto* param = processor.apvts.getParameter (id);
+            REQUIRE (param != nullptr);
+            param->setValueNotifyingHost (normalised);
+        };
+
+        setChoiceOrToggle (ParamIDs::detector, 1.0f);      // RMS
+        setChoiceOrToggle (ParamIDs::scSlope, 1.0f);       // 24 dB/oct
+        setChoiceOrToggle (ParamIDs::smoothOpen, 1.0f);    // on
+        setChoiceOrToggle (ParamIDs::releaseShape, 1.0f);  // linear
+    }
+}
+
+//==============================================================================
+// T16 - the real-time contract.
+//==============================================================================
+
+TEST_CASE ("processBlock allocates nothing, with every v0.4.0 feature engaged", "[robustness][allocation]")
+{
+    SilentiumAudioProcessor processor;
+    engageEveryNewFeature (processor);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    juce::MidiBuffer midi;
+
+    // Warm up outside the guard: the first blocks legitimately touch
+    // lazily-initialised JUCE internals that a steady-state audio callback
+    // never touches again.
+    for (int b = 0; b < 8; ++b)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.5f, b * 512);
+        processor.processBlock (buffer, midi);
+    }
+
+    SECTION ("steady state")
+    {
+        std::size_t allocations = 0;
+
+        for (int b = 0; b < 64; ++b)
+        {
+            const auto loud = (b / 4) % 2 == 0;
+            TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, loud ? 0.5f : 0.000001f, b * 512);
+
+            ScopedAllocationGuard guard;
+            processor.processBlock (buffer, midi);
+            allocations += guard.count();
+        }
+
+        INFO ("allocations across 64 guarded blocks: " << allocations);
+        CHECK (allocations == 0);
+    }
+
+    SECTION ("across a live Lookahead change, which moves the delay and republishes the latency")
+    {
+        // The block on which the lookahead actually moves is the interesting
+        // one: it starts a tap crossfade and stores a new reported latency.
+        // Neither may allocate - which is precisely why that hand-off is an
+        // atomic polled by a timer rather than a message posted from here.
+        std::size_t allocations = 0;
+
+        for (int b = 0; b < 32; ++b)
+        {
+            if (b == 4)
+                setParam (processor, ParamIDs::lookahead, 12.0f);
+            else if (b == 16)
+                setParam (processor, ParamIDs::lookahead, 2.0f);
+
+            TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.5f, b * 512);
+
+            ScopedAllocationGuard guard;
+            processor.processBlock (buffer, midi);
+            allocations += guard.count();
+        }
+
+        INFO ("allocations across a run containing two live Lookahead changes: " << allocations);
+        CHECK (allocations == 0);
+    }
+
+    SECTION ("the guard itself detects an allocation, so a zero above means something")
+    {
+        // A guard that could never fire would make every assertion above
+        // vacuous.
+        ScopedAllocationGuard guard;
+        auto* leaked = new float[64];
+        const auto counted = guard.count();
+        delete[] leaked;
+
+        CHECK (counted >= 1);
+    }
+}
+
+TEST_CASE ("No denormals survive in the new state after a long silent tail", "[robustness][denormal]")
+{
+    SilentiumAudioProcessor processor;
+    engageEveryNewFeature (processor);
+    processor.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    juce::MidiBuffer midi;
+
+    // A loud burst to charge every envelope, filter and smoother...
+    for (int b = 0; b < 20; ++b)
+    {
+        TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.7f, b * 512);
+        processor.processBlock (buffer, midi);
+    }
+
+    // ...then ten seconds of true digital silence, which is where a one-pole
+    // that is not flushed decays into the denormal range and starts costing
+    // hundreds of cycles per sample.
+    constexpr int silentBlocks = 10 * 48000 / 512;
+
+    for (int b = 0; b < silentBlocks; ++b)
+    {
+        buffer.clear();
+        processor.processBlock (buffer, midi);
+        REQUIRE (TestHelpers::allSamplesFinite (buffer));
+    }
+
+    // The output must be exactly zero - not merely small. A residue in the
+    // denormal range would still count as "silent" to the ear while quietly
+    // wrecking the CPU budget.
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            REQUIRE (buffer.getSample (channel, i) == 0.0f);
+
+    // And the engine must still respond normally afterwards.
+    TestHelpers::fillWithSine (buffer, 48000.0, 1000.0, 0.7f);
+    processor.processBlock (buffer, midi);
+    CHECK (TestHelpers::allSamplesFinite (buffer));
+    CHECK (TestHelpers::peakAbsolute (buffer) > 0.0f);
+}
+
+//==============================================================================
+// T17 - block-size invariance.
+//
+// A host is free to hand over any block size it likes, and to change it
+// between callbacks. Anything computed once per block rather than once per
+// sample is a place where that freedom can leak into the sound.
+//==============================================================================
+
+TEST_CASE ("Output is independent of the host's block size, with every v0.4.0 feature engaged", "[robustness][blocksize]")
+{
+    constexpr int totalSamples = 48000; // 1 s
+
+    auto renderAtBlockSize = [] (int blockSize)
+    {
+        SilentiumAudioProcessor processor;
+        engageEveryNewFeature (processor);
+        processor.prepareToPlay (48000.0, blockSize);
+
+        juce::AudioBuffer<float> source (2, totalSamples);
+
+        // Bursts and gaps, so the gate opens and closes several times during
+        // the comparison rather than sitting still.
+        for (int i = 0; i < totalSamples; ++i)
+        {
+            const auto t = static_cast<double> (i) / 48000.0;
+            const auto burst = std::fmod (t, 0.25) < 0.12;
+            const auto amplitude = burst ? 0.5 : 0.0005;
+            const auto value = amplitude * std::sin (juce::MathConstants<double>::twoPi * 440.0 * t);
+
+            source.setSample (0, i, static_cast<float> (value));
+            source.setSample (1, i, static_cast<float> (value));
+        }
+
+        juce::AudioBuffer<float> output (2, totalSamples);
+        juce::AudioBuffer<float> block (2, blockSize);
+        juce::MidiBuffer midi;
+
+        for (int start = 0; start + blockSize <= totalSamples; start += blockSize)
+        {
+            for (int channel = 0; channel < 2; ++channel)
+                block.copyFrom (channel, 0, source, channel, start, blockSize);
+
+            processor.processBlock (block, midi);
+
+            for (int channel = 0; channel < 2; ++channel)
+                output.copyFrom (channel, start, block, channel, 0, blockSize);
+        }
+
+        return output;
+    };
+
+    const auto reference = renderAtBlockSize (64);
+
+    for (const auto blockSize : { 32, 333, 1024 })
+    {
+        const auto candidate = renderAtBlockSize (blockSize);
+
+        // Only compare the region every block size covers completely.
+        const auto comparableSamples = (totalSamples / 1024) * 1024;
+
+        auto sumOfSquares = 0.0;
+
+        for (int i = 0; i < comparableSamples; ++i)
+        {
+            const auto difference = static_cast<double> (candidate.getSample (0, i))
+                                     - static_cast<double> (reference.getSample (0, i));
+            sumOfSquares += difference * difference;
+        }
+
+        const auto rmsDifference = std::sqrt (sumOfSquares / comparableSamples);
+
+        INFO ("block size " << blockSize << " vs 64: RMS difference " << rmsDifference);
+        CHECK (rmsDifference <= 1.0e-6);
+    }
+}

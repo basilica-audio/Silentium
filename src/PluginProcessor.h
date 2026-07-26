@@ -94,6 +94,21 @@ public:
     // 100 ms bound the live-lookahead test asserts.
     static constexpr int latencyPollIntervalMs = 25;
 
+    // Version marker written into the saved state's root element, and the
+    // schema the current build produces.
+    //
+    //   (absent) - v0.3.x and earlier. No transform is needed on load: every
+    //              parameter v0.4.0 added defaults to the value that
+    //              reproduces v0.3.x behaviour, so APVTS leaving the absent
+    //              keys at their defaults IS the migration.
+    //   2        - v0.4.0.
+    //
+    // The switch in setStateInformation() exists so a future schema change
+    // has an obvious, already-tested seam to hang a real transform on.
+    // Public so tests can assert the marker rather than re-hardcoding it.
+    static constexpr const char* stateVersionAttribute = "stateVersion";
+    static constexpr int currentStateVersion = 2;
+
 private:
     // Message-thread poll that publishes a live Lookahead change to the host.
     //
@@ -145,20 +160,6 @@ private:
     // per processBlock(); factored out so those two call sites cannot drift
     // apart and leave a parameter applied in one path but not the other.
     void applyParametersToEngine();
-
-    // Version marker written into the saved state's root element, and the
-    // schema the current build produces.
-    //
-    //   (absent) - v0.3.x and earlier. No transform is needed on load: every
-    //              parameter v0.4.0 added defaults to the value that
-    //              reproduces v0.3.x behaviour, so APVTS leaving the absent
-    //              keys at their defaults IS the migration.
-    //   2        - v0.4.0.
-    //
-    // The switch in setStateInformation() exists so a future schema change
-    // has an obvious, already-tested seam to hang a real transform on.
-    static constexpr const char* stateVersionAttribute = "stateVersion";
-    static constexpr int currentStateVersion = 2;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessor)
 };

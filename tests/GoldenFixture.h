@@ -322,6 +322,16 @@ namespace GoldenFixture
 
         bool load (const juce::String& name) { return manager.loadPreset (name); }
 
+        std::vector<juce::String> getAllPresetNames() const
+        {
+            std::vector<juce::String> names;
+
+            for (const auto& entry : manager.getAllPresets())
+                names.push_back (entry.name);
+
+            return names;
+        }
+
         JUCE_DECLARE_NON_COPYABLE (IsolatedFactoryPresetLoader)
 
     private:
@@ -348,6 +358,7 @@ namespace GoldenFixture
                 { BinaryData::chugLock_json, BinaryData::chugLock_jsonSize },
                 { BinaryData::duckUnderLead_json, BinaryData::duckUnderLead_jsonSize },
                 { BinaryData::listenCheck_json, BinaryData::listenCheck_jsonSize },
+            { BinaryData::expanderGlue_json, BinaryData::expanderGlue_jsonSize },
             };
         }
 

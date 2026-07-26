@@ -75,6 +75,7 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     presets/factory/chugLock.json
     presets/factory/duckUnderLead.json
     presets/factory/listenCheck.json
+    presets/factory/expanderGlue.json
     resources/i18n/de.txt
     # M3 photoreal GUI assets (resources/gui/, copied from the suite's
     # Blender pre-render pipeline at .scaffold/gui-assets/ - see each asset

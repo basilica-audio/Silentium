@@ -49,6 +49,7 @@ namespace
             { BinaryData::chugLock_json, BinaryData::chugLock_jsonSize },
             { BinaryData::duckUnderLead_json, BinaryData::duckUnderLead_jsonSize },
             { BinaryData::listenCheck_json, BinaryData::listenCheck_jsonSize },
+            { BinaryData::expanderGlue_json, BinaryData::expanderGlue_jsonSize },
         };
     }
 }
