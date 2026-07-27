@@ -648,13 +648,42 @@ TEST_CASE ("The factory presets v0.4.0 does not re-voice still render exactly as
         REQUIRE (static_cast<int> (fingerprint.windowRmsDb.size()) == GoldenRenders::numWindows);
 
         auto worstDeviation = 0.0;
+        auto worstWindow = -1;
+        auto windowsOverTolerance = 0;
+        juce::String overToleranceProfile;
 
         for (int window = 0; window < GoldenRenders::numWindows; ++window)
-            worstDeviation = std::max ({ worstDeviation,
-                                         std::abs (fingerprint.windowRmsDb[static_cast<size_t> (window)] - golden.rms[window]),
-                                         std::abs (fingerprint.windowPeakDb[static_cast<size_t> (window)] - golden.peak[window]) });
+        {
+            const auto index = static_cast<size_t> (window);
+            const auto rmsDeviation = std::abs (fingerprint.windowRmsDb[index] - golden.rms[window]);
+            const auto peakDeviation = std::abs (fingerprint.windowPeakDb[index] - golden.peak[window]);
+            const auto deviation = std::max (rmsDeviation, peakDeviation);
 
-        INFO ("worst deviation from the pre-v0.4.0 render: " << worstDeviation << " dB");
+            if (deviation > worstDeviation)
+            {
+                worstDeviation = deviation;
+                worstWindow = window;
+            }
+
+            // A re-voicing moves most of the render; a float-determinism
+            // difference at a threshold crossing moves the few windows around
+            // that crossing. The two are only distinguishable from the shape
+            // of the deviation profile, so a failure has to print it.
+            if (deviation > GoldenFixture::fingerprintToleranceDb)
+            {
+                ++windowsOverTolerance;
+
+                if (windowsOverTolerance <= 16)
+                    overToleranceProfile << "\n    window " << window
+                                         << ": rms " << rmsDeviation
+                                         << " dB, peak " << peakDeviation << " dB";
+            }
+        }
+
+        INFO ("worst deviation from the pre-v0.4.0 render: " << worstDeviation
+                << " dB, at window " << worstWindow << " of " << GoldenRenders::numWindows);
+        INFO ("windows over tolerance: " << windowsOverTolerance << " of " << GoldenRenders::numWindows
+                << (overToleranceProfile.isEmpty() ? juce::String() : overToleranceProfile));
         CHECK (worstDeviation <= GoldenFixture::fingerprintToleranceDb);
 
         if (GoldenFixture::toolchainTag() == juce::String (GoldenRenders::toolchainTag))

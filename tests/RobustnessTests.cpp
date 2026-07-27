@@ -419,10 +419,22 @@ TEST_CASE ("processBlock allocates nothing, with every v0.4.0 feature engaged", 
     {
         // A guard that could never fire would make every assertion above
         // vacuous.
-        ScopedAllocationGuard guard;
-        auto* leaked = new float[64];
-        const auto counted = guard.count();
-        delete[] leaked;
+        //
+        // The allocation goes through the volatile sink in AllocationGuard.h
+        // on purpose: a plain `new float[64]` immediately followed by
+        // `delete[]` is elidable under C++14 [expr.new]/10, and a Release
+        // build does elide it - which made this self-test fail while the
+        // vacuous assertions above still "passed".
+        std::size_t counted = 0;
+
+        {
+            ScopedAllocationGuard guard;
+            AllocationGuardDetail::allocationSink = new float[64];
+            counted = guard.count();
+        }
+
+        delete[] static_cast<float*> (AllocationGuardDetail::allocationSink);
+        AllocationGuardDetail::allocationSink = nullptr;
 
         CHECK (counted >= 1);
     }

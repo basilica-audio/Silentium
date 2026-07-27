@@ -165,6 +165,19 @@ add_executable(Tests ${SilentiumTestSources})
 
 target_compile_features(Tests PRIVATE cxx_std_20)
 
+# tests/AllocationGuard.{h,cpp} replaces the global operator new/delete so the
+# real-time tests can assert that processBlock() never allocates. Clang and GCC
+# treat the library operators as builtins with no observable side effects, which
+# lets an optimised build elide allocations outright and reorder the counter
+# reads around the ones it keeps - in a Release build the guard then counts zero
+# for everything, including its own deliberate-allocation self-test, and every
+# "allocates nothing" assertion silently becomes vacuous. These flags are the
+# documented way to tell them a replacement with side effects exists. MSVC does
+# not perform the transform and needs no equivalent.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(Tests PRIVATE -fno-builtin-operator-new -fno-builtin-operator-delete)
+endif()
+
 # juce_cryptography is linked into the test/tooling targets ONLY (never into
 # the shipped plugin, which has no use for it): tests/GoldenFixture.h uses
 # juce::SHA256 for the cross-version golden-render digests.
