@@ -349,17 +349,13 @@ TEST_CASE ("Ratio at its maximum takes the legacy binary-gate path", "[dsp][rati
 
         REQUIRE (static_cast<int> (fingerprint.windowRmsDb.size()) == GoldenRenders::numWindows);
 
-        auto worstDeviation = 0.0;
+        const auto comparison = GoldenFixture::compareToGolden (fingerprint,
+                                                                 GoldenRenders::legacyStateRms,
+                                                                 GoldenRenders::legacyStatePeak,
+                                                                 GoldenRenders::numWindows);
 
-        for (int window = 0; window < GoldenRenders::numWindows; ++window)
-            worstDeviation = std::max ({ worstDeviation,
-                                         std::abs (fingerprint.windowRmsDb[static_cast<size_t> (window)]
-                                                    - GoldenRenders::legacyStateRms[window]),
-                                         std::abs (fingerprint.windowPeakDb[static_cast<size_t> (window)]
-                                                    - GoldenRenders::legacyStatePeak[window]) });
-
-        INFO ("worst deviation from the v0.3.x golden: " << worstDeviation << " dB");
-        CHECK (worstDeviation <= GoldenFixture::fingerprintToleranceDb);
+        INFO ("deviation from the v0.3.x golden: " << comparison.describe());
+        CHECK (comparison.withinPolicy());
     }
 
     SECTION ("one step below maximum is audibly a different device (so the check above is not vacuous)")
@@ -384,6 +380,17 @@ TEST_CASE ("Ratio at its maximum takes the legacy binary-gate path", "[dsp][rati
         // does; if this were small, the parameter would not be doing anything.
         INFO ("largest deviation at 4:1: " << largestDeviation << " dB");
         CHECK (largestDeviation > 3.0);
+
+        // And the Tier-A policy the neutrality check above uses must reject
+        // it. This is what keeps that policy's crossing allowance honest: a
+        // real change of voicing has to fail it, not merely be large.
+        const auto comparison = GoldenFixture::compareToGolden (fingerprint,
+                                                                 GoldenRenders::legacyStateRms,
+                                                                 GoldenRenders::legacyStatePeak,
+                                                                 GoldenRenders::numWindows);
+
+        INFO ("policy verdict at 4:1: " << comparison.describe());
+        CHECK_FALSE (comparison.withinPolicy());
     }
 }
 

@@ -63,6 +63,43 @@ slowly could be flipped by one sample by a last-ULP detector difference, which
 would make Tier A flaky across platforms; a discontinuous onset crosses the
 threshold within a single sample and cannot.
 
+### The close decision, and the Tier-A crossing allowance
+
+That reasoning covers the gate's **open** decision only. Its **close** decision
+is the opposite case: the detector recrosses Threshold on a smooth exponential
+decay tail, so a last-ULP difference does move the crossing by a sample or two.
+With a hard knee and a deep Range, that crossing starts a release ramp running
+at roughly `0.03 dB` per sample, and a two-sample difference lands as a few
+hundredths of a dB in the one or two windows containing it. The original
+tolerance was set without accounting for this, and MSVC found it.
+
+Measured on CI, MSVC Release against the macOS golden, factory preset
+`Pick Attack Focus` (the sharpest close in the set — `Threshold -45 dB`,
+`Knee 0 dB`, `Range -80 dB`, `Attack 0.5 ms`, `Release 60 ms`): windows 33 and
+34 deviated by `0.075 dB` and `0.007 dB`. All 91 other windows, and every
+window of the other six presets, were inside `2e-3 dB`.
+
+Tier A therefore has two further clauses, both in
+`GoldenFixture::compareToGolden()`:
+
+- up to `maxCrossingJitterWindows` (3) windows may exceed
+  `fingerprintToleranceDb` provided each stays within
+  `crossingJitterToleranceDb` (`0.25 dB`);
+- the **whole-render aggregate** (total RMS and overall peak, derived from the
+  same per-window golden data) must match within `aggregateToleranceDb`
+  (`5e-3 dB`).
+
+The aggregate clause is what keeps the first from becoming a hiding place. A
+re-voicing — the gain law, knee, hysteresis or ballistics — moves every gated
+window, so it can neither fit inside a three-window allowance nor leave the
+aggregate intact. A crossing-timing difference moves the windows around one
+close and leaves the aggregate at `~1e-5 dB`.
+
+This is a **comparison-side** rule. It changes no part of the stimulus, the
+render or the fingerprint, so the checked-in artifacts stay exactly as valid as
+when they were generated, and the regeneration policy below was deliberately
+*not* invoked to make the check pass.
+
 ## Regeneration policy
 
 **A failing golden test is a finding, not a chore.** It means the legacy signal

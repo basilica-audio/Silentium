@@ -251,6 +251,163 @@ namespace GoldenFixture
     }
 
     //==========================================================================
+    // Tier-A comparison policy.
+    //
+    // Everything below is COMPARISON-side only. It does not participate in the
+    // stimulus, the render loop or the fingerprint, so the checked-in goldens
+    // remain exactly as valid as they were when they were generated. The rule
+    // it encodes has three parts.
+    //
+    //   1. Every window must match within fingerprintToleranceDb (2e-3 dB).
+    //
+    //   2. Up to maxCrossingJitterWindows windows may instead match only
+    //      within crossingJitterToleranceDb.
+    //
+    //      This allowance exists because of one measured effect, not as a
+    //      general loosening. The stimulus' note onsets are discontinuous, so
+    //      the gate's OPEN decision is robust across toolchains - that was
+    //      designed in. Its CLOSE decision is not: the detector recrosses
+    //      Threshold on a smooth exponential decay tail, where a last-ulp
+    //      difference moves the crossing by a couple of samples. With a hard
+    //      knee and a deep Range that crossing starts a release ramp running
+    //      at roughly 0.03 dB per sample, so a two-sample difference lands as
+    //      a few hundredths of a dB in the one or two windows containing it.
+    //
+    //      Observed on CI (MSVC Release vs the macOS golden, factory preset
+    //      "Pick Attack Focus", the sharpest close in the set): windows 33 and
+    //      34 deviated by 0.075 dB and 0.007 dB. The other 91 windows, and
+    //      every window of every other preset, were inside 2e-3 dB.
+    //
+    //      This cannot hide a re-voicing. A change to the gain law, knee,
+    //      hysteresis or ballistics moves every gated window, not two adjacent
+    //      ones - and rule 3 catches it even if it somehow did not.
+    //
+    //   3. The whole-render aggregate must match within aggregateToleranceDb.
+    //      It is derived from the same per-window golden data (every window is
+    //      the same length, so the render's total mean-square is the mean of
+    //      the per-window mean-squares), which is what stops rule 2 from
+    //      becoming a hiding place: a couple of shifted windows barely move
+    //      the aggregate, and a re-voicing moves it far past this bound.
+    //
+    // See tests/data/README.md for the full rationale and the regeneration
+    // policy this deliberately avoids invoking.
+    inline constexpr double crossingJitterToleranceDb = 0.25;
+    inline constexpr int maxCrossingJitterWindows = 3;
+    inline constexpr double aggregateToleranceDb = 5.0e-3;
+
+    struct WindowDeviation
+    {
+        int window = -1;
+        double rmsDb = 0.0;
+        double peakDb = 0.0;
+
+        double worst() const noexcept { return std::max (rmsDb, peakDb); }
+    };
+
+    struct GoldenComparison
+    {
+        WindowDeviation worstWindow;
+        std::vector<WindowDeviation> overTolerance;
+        double aggregateRmsDeviationDb = 0.0;
+        double aggregatePeakDeviationDb = 0.0;
+
+        bool withinPolicy() const noexcept
+        {
+            if (static_cast<int> (overTolerance.size()) > maxCrossingJitterWindows)
+                return false;
+
+            for (const auto& deviation : overTolerance)
+                if (deviation.worst() > crossingJitterToleranceDb)
+                    return false;
+
+            return aggregateRmsDeviationDb <= aggregateToleranceDb
+                    && aggregatePeakDeviationDb <= aggregateToleranceDb;
+        }
+
+        // Printed via INFO by every caller, so a failure explains its own
+        // shape: a re-voicing and a float-determinism difference are only
+        // distinguishable from the deviation profile.
+        juce::String describe() const
+        {
+            juce::String text;
+            text << "worst window deviation " << worstWindow.worst()
+                 << " dB at window " << worstWindow.window
+                 << "; windows over " << fingerprintToleranceDb << " dB: "
+                 << (int) overTolerance.size()
+                 << " (allowance " << maxCrossingJitterWindows
+                 << " within " << crossingJitterToleranceDb << " dB)"
+                 << "; whole-render aggregate: rms " << aggregateRmsDeviationDb
+                 << " dB, peak " << aggregatePeakDeviationDb
+                 << " dB (bound " << aggregateToleranceDb << " dB)";
+
+            for (const auto& deviation : overTolerance)
+                text << "\n    window " << deviation.window
+                     << ": rms " << deviation.rmsDb
+                     << " dB, peak " << deviation.peakDb << " dB";
+
+            return text;
+        }
+    };
+
+    // Mean of the per-window mean-squares, back in dB.
+    inline double aggregateRmsDb (const double* windowRmsDb, int windows)
+    {
+        auto meanSquare = 0.0;
+
+        for (int window = 0; window < windows; ++window)
+            meanSquare += std::pow (10.0, windowRmsDb[window] / 10.0);
+
+        meanSquare /= static_cast<double> (windows);
+
+        return meanSquare > 1.0e-18 ? 10.0 * std::log10 (meanSquare) : -180.0;
+    }
+
+    inline double aggregatePeakDb (const double* windowPeakDb, int windows)
+    {
+        auto peak = windowPeakDb[0];
+
+        for (int window = 1; window < windows; ++window)
+            peak = std::max (peak, windowPeakDb[window]);
+
+        return peak;
+    }
+
+    inline GoldenComparison compareToGolden (const Fingerprint& measured,
+                                              const double* goldenRmsDb,
+                                              const double* goldenPeakDb,
+                                              int windows)
+    {
+        GoldenComparison comparison;
+
+        for (int window = 0; window < windows; ++window)
+        {
+            const auto index = static_cast<size_t> (window);
+
+            const WindowDeviation deviation {
+                window,
+                std::abs (measured.windowRmsDb[index] - goldenRmsDb[window]),
+                std::abs (measured.windowPeakDb[index] - goldenPeakDb[window])
+            };
+
+            if (deviation.worst() > comparison.worstWindow.worst())
+                comparison.worstWindow = deviation;
+
+            if (deviation.worst() > fingerprintToleranceDb)
+                comparison.overTolerance.push_back (deviation);
+        }
+
+        comparison.aggregateRmsDeviationDb =
+            std::abs (aggregateRmsDb (measured.windowRmsDb.data(), windows)
+                       - aggregateRmsDb (goldenRmsDb, windows));
+
+        comparison.aggregatePeakDeviationDb =
+            std::abs (aggregatePeakDb (measured.windowPeakDb.data(), windows)
+                       - aggregatePeakDb (goldenPeakDb, windows));
+
+        return comparison;
+    }
+
+    //==========================================================================
     // The legacy (v0.3.x) parameter set the state-blob golden was captured
     // with. Deliberately non-default in every legacy parameter that affects
     // the render, so a regression anywhere in the legacy signal path shows

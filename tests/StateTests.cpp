@@ -25,34 +25,11 @@ namespace
         REQUIRE (static_cast<int> (measured.windowRmsDb.size()) == GoldenRenders::numWindows);
         REQUIRE (static_cast<int> (measured.windowPeakDb.size()) == GoldenRenders::numWindows);
 
-        auto worstRmsDelta = 0.0;
-        auto worstPeakDelta = 0.0;
-        auto worstRmsWindow = 0;
-        auto worstPeakWindow = 0;
+        const auto comparison = GoldenFixture::compareToGolden (measured, goldenRms, goldenPeak,
+                                                                 GoldenRenders::numWindows);
 
-        for (int window = 0; window < GoldenRenders::numWindows; ++window)
-        {
-            const auto rmsDelta = std::abs (measured.windowRmsDb[static_cast<size_t> (window)] - goldenRms[window]);
-            const auto peakDelta = std::abs (measured.windowPeakDb[static_cast<size_t> (window)] - goldenPeak[window]);
-
-            if (rmsDelta > worstRmsDelta)
-            {
-                worstRmsDelta = rmsDelta;
-                worstRmsWindow = window;
-            }
-
-            if (peakDelta > worstPeakDelta)
-            {
-                worstPeakDelta = peakDelta;
-                worstPeakWindow = window;
-            }
-        }
-
-        INFO ("worst RMS deviation " << worstRmsDelta << " dB at window " << worstRmsWindow);
-        INFO ("worst peak deviation " << worstPeakDelta << " dB at window " << worstPeakWindow);
-
-        CHECK (worstRmsDelta <= GoldenFixture::fingerprintToleranceDb);
-        CHECK (worstPeakDelta <= GoldenFixture::fingerprintToleranceDb);
+        INFO ("deviation: " << comparison.describe());
+        CHECK (comparison.withinPolicy());
     }
 
     // The strict bit-identity tier. Only meaningful on the configuration the
