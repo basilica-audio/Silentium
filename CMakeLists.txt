@@ -161,27 +161,20 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     # each dial's own bezel, see PluginEditorLayout.h's
     # ledLCentre1x/ledRCentre1x docs).
     resources/gui/led-from-master.png
-    # Org emblem (Basilica Audio rose-window medallion) - v0.3.11 REPLACES
-    # org-emblem.png (a generic/wrong rose-window asset with no guitar
-    # silhouette - not the Basilica Audio mark at all, hence Yves: "Das
-    # Logo in der Mitte fehlt" even though a medallion WAS being drawn)
-    # with org-emblem-basilica-v1.png, extracted directly from the suite's
-    # canonical brand/org.png (repo-relative to the suite root, one level
-    # above this repo - the same source every other plugin's app icon is
-    # cut from). brand/org.png is already circular artwork on a flat
-    # near-black square canvas (no squircle backing to work around, unlike
-    # the old asset's v2-plastic source) - extraction is a Kasa circle fit
-    # (ray-cast edge points, std/mean 0.15% across 720 angles - outer ring
-    # centre (511.58, 512.55), radius 390.87px in the source's own 1024x1024
-    # canvas) plus a colour-threshold alpha (background/near-black ->
-    # transparent, gold linework -> opaque, ~1px feather) intersected with a
-    # hard circular cutoff at the fitted radius - see
-    # PluginEditorLayout.h's org-emblem docs for the full derivation and
-    # orgEmblemContentDiameterFraction. Stays perfectly round: no bezel/ring
-    # is added by this extraction or by PluginEditor.cpp's draw call (an
-    # explicit standing user rule - see that file's paint() docs for the
+    # Org emblem (Basilica Audio rose-window medallion) - org-emblem.png is
+    # the CANONICAL org mark: the pure rose-window medallion, circularly
+    # extracted from brand/v2-plastic/raw/org.png along its outer gold ring
+    # (Kasa circle fit, centre (510,517), radius 337px of the 1024px source;
+    # gold colour-threshold alpha, openwork transparent so the plate shows
+    # through) - Yves-approved 2026-07-25 and restored 2026-07-27. The
+    # brand-ROOT org.png line-art variant (rose window with a guitar
+    # silhouette, briefly embedded as org-emblem-basilica-v1.png in v0.3.11)
+    # is NOT the org mark - standing suite rule: NO instruments in the org
+    # emblem ("Das eigentliche Logo ist komplett rund", pure rose window).
+    # That file stays on disk unreferenced. No bezel/ring is added by the
+    # draw call (see PluginEditor.cpp's paint() docs for the
     # restrained-opacity + soft-shadow-only mounting treatment).
-    resources/gui/org-emblem-basilica-v1.png
+    resources/gui/org-emblem.png
     # Rotating knob discs (v0.3.9, item 4) - INNER-DISC variant, gate-approved
     # 2026-07-25: nine 85x85 RGBA discs, one per knob, extracted directly from
     # master-05.png's own baked pixels (colour data is an unresampled 1:1

@@ -287,7 +287,7 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     masterToggleDown = loadImage (BinaryData::master06_png, BinaryData::master06_pngSize);
     masterGlowDim = loadImage (BinaryData::masterglowdim_png, BinaryData::masterglowdim_pngSize);
     ledImage = loadImage (BinaryData::ledfrommaster_png, BinaryData::ledfrommaster_pngSize);
-    orgEmblemImage = loadImage (BinaryData::orgemblembasilicav1_png, BinaryData::orgemblembasilicav1_pngSize);
+    orgEmblemImage = loadImage (BinaryData::orgemblem_png, BinaryData::orgemblem_pngSize);
 
     // v0.3.9 (item 4): the 9 rotating knob-disc overlays, index-matched to
     // knobLayout/knobDiscLayout above (0=Threshold..8=Knee) - a local

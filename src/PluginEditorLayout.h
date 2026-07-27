@@ -214,7 +214,12 @@ namespace slnt::layout
     };
 
     const OrgEmblemGeometry orgEmblem { { 450.0f, 227.5f }, 105.0f };
-    constexpr float orgEmblemContentDiameterFraction = 781.732f / 1024.0f;
+    // Fraction for org-emblem.png (the CANONICAL pure rose-window medallion,
+    // circular extraction from brand/v2-plastic/raw/org.png, Yves-approved
+    // 2026-07-25): outer gold ring diameter 672px of the 1024px canvas. The
+    // brand-root org.png line-art variant (guitar silhouette) is NOT the
+    // org mark - standing rule: NO instruments in the org emblem.
+    constexpr float orgEmblemContentDiameterFraction = 672.0f / 1024.0f;
 
     // Four corner screws - BAKED into master-05, no draw call. Kept for the
     // same reason as roseCentre1x/roseDiameter1x above.
