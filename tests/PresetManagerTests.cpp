@@ -37,6 +37,7 @@ namespace
             { BinaryData::chugLock_json, BinaryData::chugLock_jsonSize },
             { BinaryData::duckUnderLead_json, BinaryData::duckUnderLead_jsonSize },
             { BinaryData::listenCheck_json, BinaryData::listenCheck_jsonSize },
+            { BinaryData::expanderGlue_json, BinaryData::expanderGlue_jsonSize },
         };
     }
 
@@ -272,7 +273,7 @@ TEST_CASE ("PresetManager: every factory preset parses and loads without error",
     const auto all = manager.getAllPresets();
     const auto factoryCount = std::count_if (all.begin(), all.end(), [] (auto& e) { return e.isFactory; });
 
-    REQUIRE (factoryCount == 9); // docs/presets.md / docs/design-brief.md's Factory Presets section (8) + Default
+    REQUIRE (factoryCount == 10); // docs/presets.md's factory list (9) + Default
 
     for (auto& entry : all)
     {
@@ -587,4 +588,136 @@ TEST_CASE ("PresetManager: parameter-driven dirty tracking coexists safely with 
     }
 
     CHECK (manager.isDirty());
+}
+
+//==============================================================================
+// v0.4.0 - T20: factory preset integrity across the version boundary.
+//==============================================================================
+
+#include "GoldenFixture.h"
+#include "data/GoldenRenders.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace
+{
+    // One golden per untouched factory preset, in the same order as
+    // GoldenFixture::untouchedFactoryPresetNames().
+    struct PresetGolden
+    {
+        const char* name;
+        const char* sha256;
+        const double* rms;
+        const double* peak;
+    };
+
+    const std::vector<PresetGolden>& presetGoldens()
+    {
+        static const std::vector<PresetGolden> goldens {
+            { "Default",           GoldenRenders::presetDefaultSha256,         GoldenRenders::presetDefaultRms,         GoldenRenders::presetDefaultPeak },
+            { "Natural Decay",     GoldenRenders::presetNaturalDecaySha256,    GoldenRenders::presetNaturalDecayRms,    GoldenRenders::presetNaturalDecayPeak },
+            { "Pick Attack Focus", GoldenRenders::presetPickAttackFocusSha256, GoldenRenders::presetPickAttackFocusRms, GoldenRenders::presetPickAttackFocusPeak },
+            { "DI-Keyed Workflow", GoldenRenders::presetDIKeyedWorkflowSha256, GoldenRenders::presetDIKeyedWorkflowRms, GoldenRenders::presetDIKeyedWorkflowPeak },
+            { "Ambient Sustain",   GoldenRenders::presetAmbientSustainSha256,  GoldenRenders::presetAmbientSustainRms,  GoldenRenders::presetAmbientSustainPeak },
+            { "Duck Under Lead",   GoldenRenders::presetDuckUnderLeadSha256,   GoldenRenders::presetDuckUnderLeadRms,   GoldenRenders::presetDuckUnderLeadPeak },
+            { "Listen Check",      GoldenRenders::presetListenCheckSha256,     GoldenRenders::presetListenCheckRms,     GoldenRenders::presetListenCheckPeak },
+        };
+
+        return goldens;
+    }
+}
+
+TEST_CASE ("The factory presets v0.4.0 does not re-voice still render exactly as they did", "[presets][golden][neutrality]")
+{
+    // Anyone whose mix uses one of these presets should hear no difference
+    // whatsoever after updating. That is a stronger claim than "the JSON files
+    // were not edited" - it also covers every engine change v0.4.0 made - and
+    // it is checked against renders captured from a pre-v0.4.0 build.
+    REQUIRE (presetGoldens().size() == GoldenFixture::untouchedFactoryPresetNames().size());
+
+    for (const auto& golden : presetGoldens())
+    {
+        SilentiumAudioProcessor processor;
+        GoldenFixture::IsolatedFactoryPresetLoader loader (processor);
+
+        INFO ("factory preset \"" << golden.name << "\"");
+        REQUIRE (loader.load (golden.name));
+
+        const auto fingerprint = GoldenFixture::fingerprintOf (GoldenFixture::render (processor));
+        REQUIRE (static_cast<int> (fingerprint.windowRmsDb.size()) == GoldenRenders::numWindows);
+
+        const auto comparison = GoldenFixture::compareToGolden (fingerprint, golden.rms, golden.peak,
+                                                                 GoldenRenders::numWindows);
+
+        INFO ("deviation from the pre-v0.4.0 render: " << comparison.describe());
+        CHECK (comparison.withinPolicy());
+
+        if (GoldenFixture::toolchainTag() == juce::String (GoldenRenders::toolchainTag))
+            CHECK (fingerprint.sha256 == juce::String (golden.sha256));
+    }
+}
+
+TEST_CASE ("The v0.4.0 factory presets carry the values they are documented with", "[presets][v040]")
+{
+    SilentiumAudioProcessor processor;
+    GoldenFixture::IsolatedFactoryPresetLoader loader (processor);
+
+    auto plainValue = [&processor] (const char* id)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        return param->convertFrom0to1 (param->getValue());
+    };
+
+    SECTION ("Expander Glue is a gentle expander, not a gate")
+    {
+        REQUIRE (loader.load ("Expander Glue"));
+
+        // The point of this preset: a finite ratio and a shallow floor, so
+        // tails are reduced rather than switched off.
+        CHECK (plainValue (ParamIDs::ratio) == Catch::Approx (2.5f).margin (0.01f));
+        CHECK (plainValue (ParamIDs::range) == Catch::Approx (-18.0f).margin (0.05f));
+        CHECK (plainValue (ParamIDs::detector) == Catch::Approx (static_cast<float> (ParamConstants::detectorRms)));
+        CHECK (plainValue (ParamIDs::releaseShape) == Catch::Approx (static_cast<float> (ParamConstants::releaseShapeLinear)));
+        CHECK (plainValue (ParamIDs::smoothOpen) == Catch::Approx (1.0f));
+    }
+
+    SECTION ("Chug Lock is the one deliberately re-voiced preset, and it gained exactly one control")
+    {
+        REQUIRE (loader.load ("Chug Lock"));
+
+        CHECK (plainValue (ParamIDs::smoothOpen) == Catch::Approx (1.0f));
+
+        // Still a gate, still on the legacy detector and filter slope - the
+        // re-voicing is exactly one control, which is what the CHANGELOG says.
+        CHECK (plainValue (ParamIDs::ratio) == Catch::Approx (ParamConstants::maxRatio).margin (0.01f));
+        CHECK (plainValue (ParamIDs::detector) == Catch::Approx (static_cast<float> (ParamConstants::detectorPeak)));
+        CHECK (plainValue (ParamIDs::scSlope) == Catch::Approx (static_cast<float> (ParamConstants::scSlope12)));
+        CHECK (plainValue (ParamIDs::releaseShape) == Catch::Approx (static_cast<float> (ParamConstants::releaseShapeExponential)));
+        CHECK (plainValue (ParamIDs::hysteresis) == Catch::Approx (3.0f).margin (0.05f));
+    }
+
+    SECTION ("Surgical Mute was deliberately NOT given Smooth Open")
+    {
+        // Smooth Open shapes the closing edge as well as the opening one (the
+        // moving-max window holds the open target for up to half the lookahead
+        // on falls, and the box cascade then spreads the close). That is a
+        // good trade almost everywhere, and the wrong one for the preset whose
+        // entire purpose is the tightest possible inter-note silence - with it
+        // enabled, Surgical Mute stopped being quieter between notes than
+        // Natural Decay, which is a guarantee tests/DesignBriefTests.cpp
+        // asserts. Documented in the CHANGELOG and docs/presets.md.
+        REQUIRE (loader.load ("Surgical Mute"));
+        CHECK (plainValue (ParamIDs::smoothOpen) == Catch::Approx (0.0f));
+    }
+
+    SECTION ("every factory preset loads")
+    {
+        for (const auto& entry : loader.getAllPresetNames())
+        {
+            INFO ("preset " << entry);
+            CHECK (loader.load (entry));
+        }
+    }
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 GateEngine::GateEngine() = default;
 
@@ -25,6 +26,11 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     scHighPass.prepare (spec);
     scLowPass.prepare (spec);
 
+    scHighPass24a.prepare (spec);
+    scHighPass24b.prepare (spec);
+    scLowPass24a.prepare (spec);
+    scLowPass24b.prepare (spec);
+
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
     envelopeFollower.prepare (monoSpec);
@@ -43,7 +49,27 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
 
     detectionBuffer.setSize (static_cast<int> (spec.numChannels), static_cast<int> (spec.maximumBlockSize), false, false, true);
     monoEnvelopeBuffer.setSize (1, static_cast<int> (spec.maximumBlockSize), false, false, true);
+    detection24Buffer.setSize (static_cast<int> (spec.numChannels), static_cast<int> (spec.maximumBlockSize), false, false, true);
+    mono24Buffer.setSize (1, static_cast<int> (spec.maximumBlockSize), false, false, true);
+    monoRmsBuffer.setSize (1, static_cast<int> (spec.maximumBlockSize), false, false, true);
     preparedBlockSize = static_cast<size_t> (spec.maximumBlockSize);
+
+    // One-pole mean-square coefficient for the v0.4.0 RMS detector. Computed
+    // here (and only here), never per sample - the whole control path's
+    // convention.
+    rmsCoefficient = std::exp (-1.0 / (rmsTimeConstantMs * 0.001 * sampleRate));
+
+    detectorMix.reset (sampleRate, detectorCrossfadeSeconds);
+    detectorMix.setCurrentAndTargetValue (useRmsDetector ? 1.0f : 0.0f);
+    slopeMix.reset (sampleRate, slopeCrossfadeSeconds);
+    slopeMix.setCurrentAndTargetValue (use24dBPerOctaveSlope ? 1.0f : 0.0f);
+    smoothOpenMix.reset (sampleRate, smoothOpenCrossfadeSeconds);
+    smoothOpenMix.setCurrentAndTargetValue (useSmoothOpen ? 1.0f : 0.0f);
+
+    // Smooth Open's window is derived from the lookahead, and its storage is
+    // sized once here for the largest lookahead the parameter allows - so
+    // moving the Lookahead knob later only moves indices, never allocates.
+    openingRamp.prepare (maxLookaheadSamples);
 
     rangeSmoothed.reset (sampleRate, smoothingTimeSeconds);
     rangeSmoothed.setCurrentAndTargetValue (lastRangeDb);
@@ -52,8 +78,20 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     scLowpassSmoothed.reset (sampleRate, smoothingTimeSeconds);
     scLowpassSmoothed.setCurrentAndTargetValue (lastScLowpassHz);
 
-    latencySamples = computeLookaheadSamples();
-    lookaheadDelay.setDelay (static_cast<float> (latencySamples));
+    // prepare() is structural: it snaps the delay to the current Lookahead
+    // rather than crossfading to it, and cancels any transition that was in
+    // flight. (Live moves go through setLookaheadMs()/beginDelayCrossfadeTo()
+    // instead - see getLatencySamples().)
+    const auto preparedDelaySamples = computeLookaheadSamples();
+
+    latencySamples.store (preparedDelaySamples, std::memory_order_relaxed);
+    previousDelaySamples = preparedDelaySamples;
+    targetDelaySamples = preparedDelaySamples;
+    delayCrossfade.reset (sampleRate, delayCrossfadeSeconds);
+    delayCrossfade.setCurrentAndTargetValue (1.0f);
+
+    lookaheadDelay.setDelay (static_cast<float> (preparedDelaySamples));
+    openingRamp.setWindowSamples (preparedDelaySamples);
 
     reset();
 
@@ -75,14 +113,33 @@ void GateEngine::prepare (const juce::dsp::ProcessSpec& spec)
     // assignment in process() below never allocates either.
     *scLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (
         sampleRate, clampBelowNyquist (lastScLowpassHz, sampleRate), filterQ);
+
+    // Same priming/storage-growing reasoning again for the v0.4.0 24 dB/oct
+    // chain's four sections.
+    const auto primedHighpassHz = clampBelowNyquist (lastScHighpassHz, sampleRate);
+    const auto primedLowpassHz = clampBelowNyquist (lastScLowpassHz, sampleRate);
+
+    *scHighPass24a.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (sampleRate, primedHighpassHz, butterworth4thOrderQ1);
+    *scHighPass24b.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (sampleRate, primedHighpassHz, butterworth4thOrderQ2);
+    *scLowPass24a.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, primedLowpassHz, butterworth4thOrderQ1);
+    *scLowPass24b.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, primedLowpassHz, butterworth4thOrderQ2);
 }
 
 void GateEngine::reset()
 {
     scHighPass.reset();
     scLowPass.reset();
+    scHighPass24a.reset();
+    scHighPass24b.reset();
+    scLowPass24a.reset();
+    scLowPass24b.reset();
     envelopeFollower.reset();
     lookaheadDelay.reset();
+
+    rmsAccumulator = 0.0;
+    detectorMix.setCurrentAndTargetValue (useRmsDetector ? 1.0f : 0.0f);
+    slopeMix.setCurrentAndTargetValue (use24dBPerOctaveSlope ? 1.0f : 0.0f);
+    smoothOpenMix.setCurrentAndTargetValue (useSmoothOpen ? 1.0f : 0.0f);
 
     gateOpen = false;
     holdCounterSamples = 0;
@@ -90,6 +147,22 @@ void GateEngine::reset()
     // crosses Threshold stays silent (apart from the attack ramp) rather
     // than momentarily passing through at 0 dB right after reset()/prepare().
     currentGainDb = lastRangeDb;
+    appliedGainDb = lastRangeDb;
+
+    delayCrossfade.setCurrentAndTargetValue (1.0f);
+    previousDelaySamples = targetDelaySamples;
+
+    blockMinGainDb = lastRangeDb;
+    blockMaxGainDb = lastRangeDb;
+    telemetryRunningMinDb = 0.0f;
+    telemetryCounter = 0;
+    telemetrySampleTime = 0;
+    gainReductionHistory.clear();
+
+    // Park the opening smoother settled at the same value, so it too starts
+    // from "fully closed" rather than from whatever the previous session left
+    // in its history.
+    openingRamp.reset (lastRangeDb);
 }
 
 void GateEngine::setThresholdDb (float newThresholdDb)
@@ -120,9 +193,44 @@ void GateEngine::setRangeDb (float newRangeDb)
 
 void GateEngine::setLookaheadMs (float newLookaheadMs)
 {
-    // See getLatencySamples(): the new value only takes effect on the next
-    // prepare() call, not immediately.
+    if (juce::approximatelyEqual (newLookaheadMs, lastLookaheadMs))
+        return;
+
     lastLookaheadMs = newLookaheadMs;
+
+    // v0.4.0 F6: Lookahead is live. Before the first prepare() there is no
+    // sample rate to convert with and no delay line to read from, so the new
+    // value is simply remembered and prepare() will pick it up.
+    if (preparedBlockSize > 0)
+        beginDelayCrossfadeTo (computeLookaheadSamples());
+}
+
+void GateEngine::beginDelayCrossfadeTo (int newDelaySamples)
+{
+    if (newDelaySamples == targetDelaySamples)
+        return;
+
+    // A change arriving while a transition is still in flight snaps that
+    // transition to its destination first, rather than trying to blend three
+    // taps. Bounded worst case under fast automation, and the following
+    // crossfade still covers the new move.
+    previousDelaySamples = targetDelaySamples;
+    targetDelaySamples = newDelaySamples;
+
+    delayCrossfade.setCurrentAndTargetValue (0.0f);
+    delayCrossfade.setTargetValue (1.0f);
+
+    // Both taps live inside the delay line's fixed capacity (sized in
+    // prepare() for the whole Lookahead range), so this only moves a read
+    // offset - it never resizes anything.
+    lookaheadDelay.setDelay (static_cast<float> (newDelaySamples));
+
+    // The opening smoother's window follows the lookahead it is defined in
+    // terms of.
+    openingRamp.setWindowSamples (newDelaySamples);
+
+    // Published for the message thread to pick up and report to the host.
+    latencySamples.store (newDelaySamples, std::memory_order_relaxed);
 }
 
 void GateEngine::setScHighpassHz (float newFrequencyHz)
@@ -152,12 +260,52 @@ void GateEngine::setListenMode (bool shouldListen)
     listenMode = shouldListen;
 }
 
+void GateEngine::setRatio (float newRatio)
+{
+    lastRatio = juce::jlimit (1.0f, ParamConstants::maxRatio, newRatio);
+}
+
+void GateEngine::setHysteresisDb (float newHysteresisDb)
+{
+    lastHysteresisDb = juce::jlimit (0.0f, maxHysteresisDb, newHysteresisDb);
+}
+
+void GateEngine::setDetectorMode (bool shouldUseRms)
+{
+    useRmsDetector = shouldUseRms;
+    detectorMix.setTargetValue (shouldUseRms ? 1.0f : 0.0f);
+}
+
+void GateEngine::setScSlope24 (bool shouldUse24dBPerOctave)
+{
+    use24dBPerOctaveSlope = shouldUse24dBPerOctave;
+    slopeMix.setTargetValue (shouldUse24dBPerOctave ? 1.0f : 0.0f);
+}
+
+void GateEngine::setSmoothOpen (bool shouldSmoothOpening)
+{
+    useSmoothOpen = shouldSmoothOpening;
+    smoothOpenMix.setTargetValue (shouldSmoothOpening ? 1.0f : 0.0f);
+}
+
+void GateEngine::setReleaseShapeLinear (bool shouldUseLinearRelease)
+{
+    useLinearReleaseShape = shouldUseLinearRelease;
+}
+
 void GateEngine::process (juce::dsp::AudioBlock<float>& block, const juce::dsp::AudioBlock<float>* sidechainBlock)
 {
     const auto requestedSamples = block.getNumSamples();
 
     if (requestedSamples == 0)
         return;
+
+    // F7: the intra-block extrema describe this whole process() call, not
+    // each internal chunk, so they are seeded here rather than in
+    // processChunk() - a host block that gets subdivided still reports one
+    // pair of extrema covering all of it.
+    blockMinGainDb = std::numeric_limits<float>::max();
+    blockMaxGainDb = std::numeric_limits<float>::lowest();
 
     // sidechainUsable is decided once, against the full, pre-chunking
     // sample count - a sidechain with a different *total* sample count
@@ -237,6 +385,13 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
         detectionSub.copyFrom (block);
     }
 
+    // v0.4.0 SC Slope: the 24 dB/oct chain filters the same *unfiltered*
+    // detection input, independently, so it must be copied off before the
+    // 12 dB/oct chain runs in place below.
+    juce::dsp::AudioBlock<float> detection24Block (detection24Buffer);
+    auto detection24Sub = detection24Block.getSubBlock (0, numSamples);
+    detection24Sub.copyFrom (detectionSub);
+
     const auto scHz = clampBelowNyquist (scHighpassSmoothed.skip (static_cast<int> (numSamples)), sampleRate);
 
     // Recomputed once per block from the smoothed cutoff. Deliberately uses
@@ -265,34 +420,83 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
     *scLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, scLowHz, filterQ);
     scLowPass.process (detectionContext);
 
+    // v0.4.0 24 dB/oct chain: the same two cutoffs, but each filter built as
+    // a Butterworth-Q-paired cascade of two sections, giving a true 4th-order
+    // response. Same allocation-free ArrayCoefficients pattern as above.
+    *scHighPass24a.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (sampleRate, scHz, butterworth4thOrderQ1);
+    *scHighPass24b.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass (sampleRate, scHz, butterworth4thOrderQ2);
+    *scLowPass24a.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, scLowHz, butterworth4thOrderQ1);
+    *scLowPass24b.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass (sampleRate, scLowHz, butterworth4thOrderQ2);
+
+    juce::dsp::ProcessContextReplacing<float> detection24Context (detection24Sub);
+    scHighPass24a.process (detection24Context);
+    scHighPass24b.process (detection24Context);
+    scLowPass24a.process (detection24Context);
+    scLowPass24b.process (detection24Context);
+
+    // Slope crossfade, applied to the detection signal itself (in place, into
+    // detectionSub) rather than to the envelope, so that everything
+    // downstream - the stereo-link, both detectors, and Listen mode - sees
+    // one consistent detection signal. At a weight parked at 0 the arithmetic
+    // is exactly `1.0f * legacy + 0.0f * new`, which is the legacy sample
+    // unchanged: 12 dB/oct mode is bit-identical to v0.3.x.
+    //
     // Stereo-linked combine: per-sample max(|channel|) across all channels,
     // so a signal panned to one side alone can still open the gate, and the
     // gate never shifts the stereo image (the same gain is applied to every
     // channel below).
     auto* monoData = monoEnvelopeBuffer.getWritePointer (0);
+    const auto detectionChannels = detectionSub.getNumChannels();
 
     for (size_t sample = 0; sample < numSamples; ++sample)
     {
+        const auto slopeWeight = slopeMix.getNextValue();
         float maxAbs = 0.0f;
 
-        for (size_t channel = 0; channel < detectionSub.getNumChannels(); ++channel)
-            maxAbs = std::max (maxAbs, std::abs (detectionSub.getChannelPointer (channel)[sample]));
+        for (size_t channel = 0; channel < detectionChannels; ++channel)
+        {
+            auto* wide = detectionSub.getChannelPointer (channel);
+            const auto steep = detection24Sub.getChannelPointer (channel)[sample];
+            const auto blended = (1.0f - slopeWeight) * wide[sample] + slopeWeight * steep;
+
+            wide[sample] = blended;
+            maxAbs = std::max (maxAbs, std::abs (blended));
+        }
 
         monoData[sample] = maxAbs;
+    }
+
+    // v0.4.0 RMS detector: a one-pole on the squared stereo-linked signal,
+    // computed BEFORE the peak follower overwrites monoData in place. It runs
+    // on every block regardless of which detector is selected, so that
+    // switching to it crossfades towards a warm, already-tracking envelope
+    // rather than towards a cold one - a detector that only runs while
+    // selected restarts from silence on every switch, which is audible.
+    auto* rmsData = monoRmsBuffer.getWritePointer (0);
+
+    for (size_t sample = 0; sample < numSamples; ++sample)
+    {
+        const auto input = static_cast<double> (monoData[sample]);
+        rmsAccumulator = rmsCoefficient * rmsAccumulator + (1.0 - rmsCoefficient) * input * input;
+        rmsData[sample] = static_cast<float> (std::sqrt (rmsAccumulator + rmsEpsilon));
     }
 
     juce::dsp::AudioBlock<float> monoBlock (monoEnvelopeBuffer);
     auto monoSub = monoBlock.getSubBlock (0, numSamples);
     juce::dsp::ProcessContextReplacing<float> monoContext (monoSub);
     envelopeFollower.process (monoContext);
-    // monoEnvelopeBuffer now holds the per-sample linear peak envelope.
+    // monoEnvelopeBuffer now holds the per-sample linear peak envelope, and
+    // monoRmsBuffer the per-sample linear RMS envelope.
 
     // --- Gain computer: hysteresis comparator + hold timer + attack/release
     // ramp, all in the dB domain, evaluated once per block for the
     // block-rate quantities (Range, thresholds, ramp rates) and once per
     // sample for the state machine and gain itself. ---
     const auto rangeDbNow = rangeSmoothed.skip (static_cast<int> (numSamples));
-    const auto closeThresholdDb = lastThresholdDb - hysteresisDb;
+
+    // v0.4.0: the open/close gap is user-set. Its default is exactly the
+    // constant this line used to read, so an untouched session is unchanged.
+    const auto closeThresholdDb = lastThresholdDb - lastHysteresisDb;
 
     const auto attackTimeSamples = std::max (1.0f, static_cast<float> (lastAttackMs * 0.001 * sampleRate));
     const auto releaseTimeSamples = std::max (1.0f, static_cast<float> (lastReleaseMs * 0.001 * sampleRate));
@@ -348,9 +552,28 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
     const auto hardKnee = kneeDbNow < 0.0001f;
     const auto kneeLowerDb = lastThresholdDb - kneeDbNow * 0.5f;
 
+    // v0.4.0 F4 (dB-linear release): a constant dB/sample decrement sized so
+    // that a full Range-span close takes exactly the Release time. Shares
+    // fullScaleSpanDb with the exponential shape above, so both shapes agree
+    // on what "a full close" means.
+    const auto linearReleaseDbPerSample = fullScaleSpanDb / releaseTimeSamples;
+
+    // v0.4.0 F2 (downward expander): at the top of the Ratio range the loop
+    // below takes the literal v0.3.x binary branch. That is a code-level
+    // guarantee of neutrality, not a numerical coincidence of the expander
+    // curve happening to become infinitely steep.
+    const auto ratioNow = juce::jlimit (1.0f, ParamConstants::maxRatio, lastRatio);
+    const auto isBinaryGate = ratioNow >= ParamConstants::maxRatio - ParamConstants::ratioGateEpsilon;
+    const auto expanderSlope = ratioNow - 1.0f;
+
     for (size_t sample = 0; sample < numSamples; ++sample)
     {
-        const auto envelopeLinear = monoData[sample];
+        // v0.4.0 detector crossfade. Parked at 0 (Peak, the default) this is
+        // exactly `1.0f * peak + 0.0f * rms`, i.e. the v0.3.x envelope
+        // sample unchanged.
+        const auto detectorWeight = detectorMix.getNextValue();
+        const auto envelopeLinear = (1.0f - detectorWeight) * monoData[sample]
+                                     + detectorWeight * rmsData[sample];
         const auto envelopeDb = juce::Decibels::gainToDecibels (envelopeLinear, minusInfinityDb);
 
         if (! gateOpen && envelopeDb >= lastThresholdDb)
@@ -368,45 +591,168 @@ void GateEngine::processChunk (juce::dsp::AudioBlock<float>& block, const juce::
                 gateOpen = false;
         }
 
-        float openness; // 0 == fully closed target, 1 == fully open target
+        float targetGainDb;
 
-        if (hardKnee)
+        if (isBinaryGate)
         {
-            openness = gateOpen ? 1.0f : 0.0f;
+            // ---- v0.3.x binary path, reproduced literally ----
+            float openness; // 0 == fully closed target, 1 == fully open target
+
+            if (hardKnee)
+            {
+                openness = gateOpen ? 1.0f : 0.0f;
+            }
+            else
+            {
+                const auto normalised = juce::jlimit (0.0f, 1.0f, (envelopeDb - kneeLowerDb) / kneeDbNow);
+                openness = normalised * normalised * (3.0f - 2.0f * normalised); // smoothstep
+            }
+
+            // Hold guarantees a fully open target for its whole duration,
+            // regardless of the knee curve's instantaneous value.
+            if (gateOpen && holdCounterSamples > 0)
+                openness = 1.0f;
+
+            // Duck inverts the target: attenuate above Threshold instead of
+            // opening above it, reusing the exact same detection/hysteresis/
+            // hold/knee machinery above.
+            if (duckingMode)
+                openness = 1.0f - openness;
+
+            targetGainDb = juce::jmap (openness, rangeDbNow, 0.0f);
         }
         else
         {
-            const auto normalised = juce::jlimit (0.0f, 1.0f, (envelopeDb - kneeLowerDb) / kneeDbNow);
-            openness = normalised * normalised * (3.0f - 2.0f * normalised); // smoothstep
+            // ---- v0.4.0 downward-expander curve ----
+            // (research-gate-expander.md §2.2; Giannoulis/Massberg/Reiss
+            // placement: the whole gain computer stays in the dB domain.)
+            //
+            //   hard knee:  G = 0                            , L >= T
+            //               G = (R - 1) * (L - T)            , L <  T
+            //   soft knee:  G = -(R - 1) * (T + W/2 - L)^2 / (2W)
+            //                                                , |2(L - T)| <= W
+            //
+            // The soft-knee branch is continuous with the hard-knee one in
+            // both value and slope at both knee edges, so Knee widens the
+            // transition without introducing a corner anywhere.
+            //
+            // Duck is handled by reflecting the detector level about
+            // Threshold rather than by a second curve: the reflection maps
+            // the "quiet" side of the law onto the "loud" side (and the knee
+            // band onto itself), which is exactly what ducking means, and it
+            // keeps a single expression to reason about and test.
+            const auto level = duckingMode ? (2.0f * lastThresholdDb - envelopeDb) : envelopeDb;
+            const auto overshootDb = level - lastThresholdDb;
+
+            float expanderGainDb;
+
+            if (! hardKnee && std::abs (2.0f * overshootDb) <= kneeDbNow)
+            {
+                const auto distanceIntoKnee = lastThresholdDb + kneeDbNow * 0.5f - level;
+                expanderGainDb = -expanderSlope * distanceIntoKnee * distanceIntoKnee / (2.0f * kneeDbNow);
+            }
+            else if (overshootDb >= 0.0f)
+            {
+                expanderGainDb = 0.0f;
+            }
+            else
+            {
+                expanderGainDb = expanderSlope * overshootDb;
+            }
+
+            // Hold keeps its meaning: for its whole duration the target is
+            // pinned to the fully-passed value (or, when ducking, the fully
+            // attenuated one), exactly as in the binary path.
+            if (gateOpen && holdCounterSamples > 0)
+                expanderGainDb = duckingMode ? rangeDbNow : 0.0f;
+
+            // Range is the floor of the expander, not a separate stage: no
+            // matter how far below Threshold the signal sits, attenuation
+            // stops there.
+            targetGainDb = std::max (expanderGainDb, rangeDbNow);
         }
 
-        // Hold guarantees a fully open target for its whole duration,
-        // regardless of the knee curve's instantaneous value.
-        if (gateOpen && holdCounterSamples > 0)
-            openness = 1.0f;
-
-        // Duck inverts the target: attenuate above Threshold instead of
-        // opening above it, reusing the exact same detection/hysteresis/
-        // hold/knee machinery above.
-        if (duckingMode)
-            openness = 1.0f - openness;
-
-        const auto targetGainDb = juce::jmap (openness, rangeDbNow, 0.0f);
         const auto diffFromTargetDb = currentGainDb - targetGainDb;
 
         if (diffFromTargetDb < 0.0f) // attacking: current below target, ramping up towards it
+        {
             currentGainDb = targetGainDb + diffFromTargetDb * attackMultiplier;
+        }
         else if (diffFromTargetDb > 0.0f) // releasing: current above target, ramping down towards it
-            currentGainDb = targetGainDb + diffFromTargetDb * releaseMultiplier;
+        {
+            // v0.4.0 F4: Linear walks down at a constant dB/sample rate (the
+            // dB-linear VCA-integrator fade), so the tail's decay rate never
+            // changes and a full close takes exactly the Release time.
+            // Exponential is the v0.3.x program-dependent approach.
+            if (useLinearReleaseShape)
+                currentGainDb = std::max (currentGainDb - linearReleaseDbPerSample, targetGainDb);
+            else
+                currentGainDb = targetGainDb + diffFromTargetDb * releaseMultiplier;
+        }
 
-        const auto gainLinear = juce::Decibels::decibelsToGain (currentGainDb, minusInfinityDb);
+        // v0.4.0 F1 (Smooth Open): the ballistic trajectory is shaped by the
+        // lookahead-windowed smoother and the result REPLACES the applied
+        // gain (in series - never max()'d against the raw trajectory, which
+        // would let a 0 ms attack's single-sample step win at the opening
+        // edge and reintroduce the very click this removes; see
+        // LookaheadRamp.h). The smoother runs unconditionally so it stays
+        // warm, and the crossfade weight parked at 0 makes this exactly
+        // `1.0f * currentGainDb + 0.0f * shaped`, i.e. v0.3.x unchanged.
+        const auto shapedGainDb = openingRamp.process (currentGainDb);
+        const auto smoothOpenWeight = smoothOpenMix.getNextValue();
+
+        appliedGainDb = (1.0f - smoothOpenWeight) * currentGainDb + smoothOpenWeight * shapedGainDb;
+
+        // F7 telemetry: intra-block extrema, plus one history point per
+        // telemetryIntervalSamples carrying that sub-block's deepest
+        // reduction. Two compares and (once per 64 samples) one lock-free
+        // store - nothing that can allocate or block.
+        blockMinGainDb = std::min (blockMinGainDb, appliedGainDb);
+        blockMaxGainDb = std::max (blockMaxGainDb, appliedGainDb);
+        telemetryRunningMinDb = std::min (telemetryRunningMinDb, appliedGainDb);
+        ++telemetrySampleTime;
+
+        if (++telemetryCounter >= telemetryIntervalSamples)
+        {
+            gainReductionHistory.push ({ telemetrySampleTime, telemetryRunningMinDb });
+            telemetryCounter = 0;
+            telemetryRunningMinDb = 0.0f;
+        }
+
+        const auto gainLinear = juce::Decibels::decibelsToGain (appliedGainDb, minusInfinityDb);
         const auto detectionChannelCount = detectionSub.getNumChannels();
+
+        // F6 live lookahead: while a delay change is in flight, read both the
+        // outgoing and incoming taps and blend them equal-power (the two taps
+        // are effectively decorrelated, so a linear fade would dip). Parked at
+        // 1 - the overwhelmingly common case - this collapses to the single
+        // v0.3.x tap read, with no extra work and no arithmetic applied.
+        const auto delayWeight = delayCrossfade.getNextValue();
+        const auto crossfadingDelay = delayWeight < 1.0f;
+        const auto outgoingTapGain = crossfadingDelay ? std::sqrt (1.0f - delayWeight) : 0.0f;
+        const auto incomingTapGain = crossfadingDelay ? std::sqrt (delayWeight) : 1.0f;
 
         for (size_t channel = 0; channel < numChannelsToProcess; ++channel)
         {
             auto* channelData = block.getChannelPointer (channel);
             lookaheadDelay.pushSample (static_cast<int> (channel), channelData[sample]);
-            const auto delayed = lookaheadDelay.popSample (static_cast<int> (channel));
+
+            float delayed;
+
+            if (crossfadingDelay)
+            {
+                const auto outgoing = lookaheadDelay.popSample (static_cast<int> (channel),
+                                                                 static_cast<float> (previousDelaySamples),
+                                                                 false);
+                delayed = outgoingTapGain * outgoing
+                           + incomingTapGain * lookaheadDelay.popSample (static_cast<int> (channel),
+                                                                          static_cast<float> (targetDelaySamples),
+                                                                          true);
+            }
+            else
+            {
+                delayed = lookaheadDelay.popSample (static_cast<int> (channel));
+            }
 
             if (listenMode)
             {

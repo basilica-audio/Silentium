@@ -1,0 +1,26 @@
+{
+    "format": "basilica-preset-1",
+    "plugin": "com.yvesvogl.silentium",
+    "pluginVersion": "0.4.0",
+    "name": "Expander Glue",
+    "category": "Guitar",
+    "parameters": {
+        "threshold": -45.0,
+        "attack": 2.0,
+        "hold": 40.0,
+        "release": 200.0,
+        "range": -18.0,
+        "lookahead": 3.0,
+        "scHighpass": 60.0,
+        "scLowpass": 16000.0,
+        "knee": 8.0,
+        "duck": 0.0,
+        "listen": 0.0,
+        "ratio": 2.5,
+        "hysteresis": 3.0,
+        "detector": 1.0,
+        "scSlope": 0.0,
+        "smoothOpen": 1.0,
+        "releaseShape": 1.0
+    }
+}

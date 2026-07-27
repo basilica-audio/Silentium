@@ -49,6 +49,7 @@ namespace
             { BinaryData::chugLock_json, BinaryData::chugLock_jsonSize },
             { BinaryData::duckUnderLead_json, BinaryData::duckUnderLead_jsonSize },
             { BinaryData::listenCheck_json, BinaryData::listenCheck_jsonSize },
+            { BinaryData::expanderGlue_json, BinaryData::expanderGlue_jsonSize },
         };
     }
 }
@@ -78,6 +79,12 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     kneeDb = apvts.getRawParameterValue (ParamIDs::knee);
     duckMode = apvts.getRawParameterValue (ParamIDs::duck);
     listenMode = apvts.getRawParameterValue (ParamIDs::listen);
+    ratio = apvts.getRawParameterValue (ParamIDs::ratio);
+    hysteresisDb = apvts.getRawParameterValue (ParamIDs::hysteresis);
+    detectorChoice = apvts.getRawParameterValue (ParamIDs::detector);
+    scSlopeChoice = apvts.getRawParameterValue (ParamIDs::scSlope);
+    smoothOpen = apvts.getRawParameterValue (ParamIDs::smoothOpen);
+    releaseShapeChoice = apvts.getRawParameterValue (ParamIDs::releaseShape);
 
     jassert (thresholdDb != nullptr);
     jassert (attackMs != nullptr);
@@ -90,14 +97,27 @@ SilentiumAudioProcessor::SilentiumAudioProcessor()
     jassert (kneeDb != nullptr);
     jassert (duckMode != nullptr);
     jassert (listenMode != nullptr);
+    jassert (ratio != nullptr);
+    jassert (hysteresisDb != nullptr);
+    jassert (detectorChoice != nullptr);
+    jassert (scSlopeChoice != nullptr);
+    jassert (smoothOpen != nullptr);
+    jassert (releaseShapeChoice != nullptr);
 
     // M2 default resolution: user "Default" preset > factory "Default"
     // preset > the ParameterLayout defaults apvts was just constructed
     // with above (see PresetManager::applyStartupDefault()'s docs).
     presetManager.applyStartupDefault();
+
+    // v0.4.0 F6: publishes live Lookahead changes to the host from the
+    // message thread (see timerCallback()).
+    startTimer (latencyPollIntervalMs);
 }
 
-SilentiumAudioProcessor::~SilentiumAudioProcessor() = default;
+SilentiumAudioProcessor::~SilentiumAudioProcessor()
+{
+    stopTimer();
+}
 
 //==============================================================================
 juce::AudioProcessorValueTreeState::ParameterLayout SilentiumAudioProcessor::createParameterLayout()
@@ -167,6 +187,19 @@ void SilentiumAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     // filter coefficients, so the very first block after prepareToPlay()
     // already reflects the host/session's actual parameter values rather
     // than the engine's built-in defaults.
+    applyParametersToEngine();
+
+    engine.prepare (spec);
+
+    // Lookahead is the only source of the plugin's reported latency; the
+    // main signal path is delayed internally by GateEngine (see
+    // docs/architecture.md). Changing Lookahead live only takes effect on
+    // the next prepareToPlay() (see GateEngine::getLatencySamples()).
+    setLatencySamples (engine.getLatencySamples());
+}
+
+void SilentiumAudioProcessor::applyParametersToEngine()
+{
     engine.setThresholdDb (thresholdDb->load (std::memory_order_relaxed));
     engine.setAttackMs (attackMs->load (std::memory_order_relaxed));
     engine.setHoldMs (holdMs->load (std::memory_order_relaxed));
@@ -179,13 +212,15 @@ void SilentiumAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
     engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);
 
-    engine.prepare (spec);
-
-    // Lookahead is the only source of the plugin's reported latency; the
-    // main signal path is delayed internally by GateEngine (see
-    // docs/architecture.md). Changing Lookahead live only takes effect on
-    // the next prepareToPlay() (see GateEngine::getLatencySamples()).
-    setLatencySamples (engine.getLatencySamples());
+    // v0.4.0. The choice parameters' raw APVTS value is the selected index as
+    // a float, so each is compared against the index constant that names it
+    // (ParamIDs.h's ParamConstants) rather than against a bare number.
+    engine.setRatio (ratio->load (std::memory_order_relaxed));
+    engine.setHysteresisDb (hysteresisDb->load (std::memory_order_relaxed));
+    engine.setDetectorMode (juce::roundToInt (detectorChoice->load (std::memory_order_relaxed)) == ParamConstants::detectorRms);
+    engine.setScSlope24 (juce::roundToInt (scSlopeChoice->load (std::memory_order_relaxed)) == ParamConstants::scSlope24);
+    engine.setSmoothOpen (smoothOpen->load (std::memory_order_relaxed) >= 0.5f);
+    engine.setReleaseShapeLinear (juce::roundToInt (releaseShapeChoice->load (std::memory_order_relaxed)) == ParamConstants::releaseShapeLinear);
 }
 
 void SilentiumAudioProcessor::releaseResources()
@@ -240,17 +275,7 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     // bus's own channel count.
     auto mainBuffer = getBusBuffer (buffer, false, 0);
 
-    engine.setThresholdDb (thresholdDb->load (std::memory_order_relaxed));
-    engine.setAttackMs (attackMs->load (std::memory_order_relaxed));
-    engine.setHoldMs (holdMs->load (std::memory_order_relaxed));
-    engine.setReleaseMs (releaseMs->load (std::memory_order_relaxed));
-    engine.setRangeDb (rangeDb->load (std::memory_order_relaxed));
-    engine.setLookaheadMs (lookaheadMs->load (std::memory_order_relaxed));
-    engine.setScHighpassHz (scHighpassHz->load (std::memory_order_relaxed));
-    engine.setScLowpassHz (scLowpassHz->load (std::memory_order_relaxed));
-    engine.setKneeDb (kneeDb->load (std::memory_order_relaxed));
-    engine.setDuckingMode (duckMode->load (std::memory_order_relaxed) >= 0.5f);
-    engine.setListenMode (listenMode->load (std::memory_order_relaxed) >= 0.5f);
+    applyParametersToEngine();
 
     juce::dsp::AudioBlock<float> mainBlock (mainBuffer);
 
@@ -280,6 +305,24 @@ void SilentiumAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     // Gain-reduction side, read after process() so it reflects this block's
     // final ramp position.
     meterGainReductionDb.store (engine.getCurrentGainDb(), std::memory_order_relaxed);
+
+    // v0.4.0 F7: plus the extrema actually reached inside the block, which
+    // the block-boundary value above cannot show.
+    meterGainReductionMinDb.store (engine.getBlockMinGainDb(), std::memory_order_relaxed);
+    meterGainReductionMaxDb.store (engine.getBlockMaxGainDb(), std::memory_order_relaxed);
+}
+
+void SilentiumAudioProcessor::timerCallback()
+{
+    // v0.4.0 F6. The engine moves its applied lookahead delay immediately
+    // (crossfaded, on the audio thread) and publishes the new value; the host
+    // must be told about it, but setLatencySamples()/updateHostDisplay() are
+    // message-thread-only. This is that hand-off, and it is the ONLY place
+    // the reported latency changes outside prepareToPlay().
+    const auto engineLatency = engine.getLatencySamples();
+
+    if (engineLatency != getLatencySamples())
+        setLatencySamples (engineLatency);
 }
 
 //==============================================================================
@@ -298,6 +341,14 @@ void SilentiumAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     const auto state = apvts.copyState();
     const std::unique_ptr<juce::XmlElement> xml (state.createXml());
+
+    // v0.4.0: stamp the schema version onto the root element. It is written
+    // as an XML attribute rather than as a ValueTree property so it never
+    // appears as a phantom entry in the APVTS state itself, and so an older
+    // build - which knows nothing about it - simply ignores it and loads the
+    // parameters as usual.
+    xml->setAttribute (stateVersionAttribute, currentStateVersion);
+
     copyXmlToBinary (*xml, destData);
 }
 
@@ -305,8 +356,37 @@ void SilentiumAudioProcessor::setStateInformation (const void* data, int sizeInB
 {
     const std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
 
-    if (xmlState != nullptr && xmlState->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+    if (xmlState == nullptr || ! xmlState->hasTagName (apvts.state.getType()))
+        return;
+
+    // A state written before v0.4.0 carries no version attribute; treat it as
+    // schema 1.
+    const auto stateVersion = xmlState->getIntAttribute (stateVersionAttribute, 1);
+
+    switch (stateVersion)
+    {
+        case 1:
+            // v0.3.x and earlier. No transform: every parameter v0.4.0 added
+            // defaults to its exact-neutral value, and APVTS leaves absent
+            // parameters at their defaults - so simply replacing the state
+            // reproduces the old session's rendering exactly. This is
+            // asserted against a render captured from an actual v0.3.x build
+            // in tests/StateTests.cpp, not merely assumed.
+            break;
+
+        case currentStateVersion:
+            break;
+
+        default:
+            // A state from a FUTURE build. APVTS already ignores parameter
+            // IDs it does not know and keeps its own defaults for the ones
+            // the file omits, so loading it is the best available behaviour -
+            // strictly better than refusing and leaving the user with
+            // whatever happened to be dialled in.
+            break;
+    }
+
+    apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
 }
 
 //==============================================================================

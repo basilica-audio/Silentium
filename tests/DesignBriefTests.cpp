@@ -602,3 +602,103 @@ TEST_CASE ("Design brief #7: Surgical Mute vs Natural Decay factory presets prod
     CHECK (surgicalGapRms < naturalGapRms);
     CHECK (surgicalGapRms < naturalGapRms * 0.5); // clearly, not marginally, distinct
 }
+
+//==============================================================================
+// v0.4.0: the null test, extended to every new feature.
+//
+// The original design brief's guarantee is that with Range at 0 dB the whole
+// engine collapses to a pure delay. v0.4.0 adds five things that sit in or
+// beside that path, and the guarantee has to survive all of them at once - if
+// any of them leaked into the main signal, this is where it would show.
+//==============================================================================
+
+TEST_CASE ("Design brief: an open gate is still a pure delay with every v0.4.0 feature engaged", "[dsp][designbrief][null][v040]")
+{
+    SilentiumAudioProcessor processor;
+
+    auto setParameter = [&processor] (const char* id, float value)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+    };
+
+    auto setNormalised = [&processor] (const char* id, float normalised)
+    {
+        auto* param = processor.apvts.getParameter (id);
+        REQUIRE (param != nullptr);
+        param->setValueNotifyingHost (normalised);
+    };
+
+    // Range 0 dB == the gate can never attenuate, whatever the gain computer
+    // decides; Threshold at its minimum means it is also genuinely open
+    // throughout rather than coincidentally unattenuated.
+    setParameter (ParamIDs::threshold, -80.0f);
+    setParameter (ParamIDs::range, 0.0f);
+    setParameter (ParamIDs::lookahead, 5.0f);
+    setParameter (ParamIDs::attack, 0.0f);
+    setParameter (ParamIDs::hold, 20.0f);
+    setParameter (ParamIDs::release, 80.0f);
+    setParameter (ParamIDs::knee, 6.0f);
+    setParameter (ParamIDs::hysteresis, 9.0f);
+    setParameter (ParamIDs::ratio, ParamConstants::maxRatio);
+    setNormalised (ParamIDs::detector, 1.0f);     // RMS
+    setNormalised (ParamIDs::scSlope, 1.0f);      // 24 dB/oct
+    setNormalised (ParamIDs::smoothOpen, 1.0f);   // on
+    setNormalised (ParamIDs::releaseShape, 1.0f); // linear
+
+    constexpr int blockSize = 512;
+    constexpr int numBlocks = 40;
+    constexpr int totalSamples = blockSize * numBlocks;
+
+    processor.prepareToPlay (48000.0, blockSize);
+    const auto latency = processor.getLatencySamples();
+    REQUIRE (latency == 240);
+
+    juce::AudioBuffer<float> source (2, totalSamples);
+    juce::AudioBuffer<float> output (2, totalSamples);
+
+    for (int i = 0; i < totalSamples; ++i)
+    {
+        const auto t = static_cast<double> (i) / 48000.0;
+        const auto value = 0.5 * std::sin (juce::MathConstants<double>::twoPi * 220.0 * t)
+                            + 0.2 * std::sin (juce::MathConstants<double>::twoPi * 1310.0 * t);
+
+        source.setSample (0, i, static_cast<float> (value));
+        source.setSample (1, i, static_cast<float> (value));
+    }
+
+    juce::AudioBuffer<float> block (2, blockSize);
+    juce::MidiBuffer midi;
+
+    for (int start = 0; start < totalSamples; start += blockSize)
+    {
+        for (int channel = 0; channel < 2; ++channel)
+            block.copyFrom (channel, 0, source, channel, start, blockSize);
+
+        processor.processBlock (block, midi);
+
+        for (int channel = 0; channel < 2; ++channel)
+            output.copyFrom (channel, start, block, channel, 0, blockSize);
+    }
+
+    // Compare against the input delayed by the reported latency, skipping the
+    // first block so the delay line is primed with real audio rather than the
+    // silence it starts from.
+    auto sumOfSquares = 0.0;
+    auto comparedSamples = 0;
+
+    for (int i = blockSize; i < totalSamples; ++i)
+    {
+        const auto difference = static_cast<double> (output.getSample (0, i))
+                                 - static_cast<double> (source.getSample (0, i - latency));
+        sumOfSquares += difference * difference;
+        ++comparedSamples;
+    }
+
+    const auto nullRms = std::sqrt (sumOfSquares / comparedSamples);
+    const auto nullRmsDb = juce::Decibels::gainToDecibels (nullRms, -200.0);
+
+    INFO ("null residual: " << nullRmsDb << " dBFS RMS");
+    CHECK (nullRmsDb < -120.0);
+}

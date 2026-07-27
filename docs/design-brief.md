@@ -342,3 +342,94 @@ Generic names, no brand/person references. Intent-first naming, matching the
 - No GUI changes are in scope here (M3). No preset *system* implementation is
   in scope here either — §5 is content for M2's preset system to consume,
   not a spec for how presets are stored/browsed.
+
+---
+
+# v0.4.0 addendum — expander, click-free opening, live reconfiguration
+
+This section records what v0.4.0 added on top of the v0.2.0 brief above, and —
+more importantly — the two things it deliberately did **not** ship.
+
+## What shipped
+
+Six parameters (`ratio`, `hysteresis`, `detector`, `scSlope`, `smoothOpen`,
+`releaseShape`), live Lookahead, and gain-reduction telemetry. The algorithms
+and their measured behaviour are documented in `CHANGELOG.md`; the topology and
+the design decisions behind it are in `docs/architecture.md`; the user-facing
+descriptions are in `docs/manual.md`.
+
+The governing constraint was that **nothing about an existing session may
+change**. Every new parameter defaults to the value that reproduces v0.3.x, and
+each legacy behaviour is reached through a literal code branch rather than by
+re-deriving it as a special case of the new law — at Ratio's maximum the gain
+computer runs the old binary path verbatim, and every crossfade weight parked
+at its default multiplies the new path by exactly zero.
+
+That claim is *verified*, not asserted. `tests/data/` holds renders captured
+from a build of the v0.3.0 engine (commit `e9bceb9`), and the neutrality tests
+compare against those artifacts rather than against a second render from the
+same binary — which would move both sides of the comparison together and stay
+green through a regression. See `tests/data/README.md`.
+
+## Honesty section (continued)
+
+The v0.2.0 honesty section above applies unchanged: none of this is calibrated
+against measured hardware. Two additions specific to this release:
+
+- **The expander law is textbook, not proprietary.** The hard/soft-knee
+  downward-expander equations are the standard formulation from the dynamic
+  range compression literature (Giannoulis, Massberg & Reiss). There is nothing
+  novel in them and nothing reverse-engineered.
+- **The RMS detector is not universally steadier than the peak detector**, and
+  the tests say so. On a sustained low-frequency tone its 5 ms window does not
+  smooth the mean-square ripple at twice the fundamental, while the peak
+  follower's 15 ms release comfortably bridges the period — so at 70 Hz, peak
+  is the steadier of the two. RMS's real advantage is material with a high
+  crest factor, where it ignores spikes that carry almost no energy. The
+  documentation and the test suite both describe it that way rather than
+  repeating the more flattering general claim.
+
+## Deliberately not shipped
+
+### Program-adaptive auto-release
+
+A dual-envelope, decay-tracking auto-release was specified for this release. It
+is not implemented, and no parameter ID was reserved for it.
+
+US 11,641,183 (granted 2023, presumed in force) claims an
+integration-release-window auto-release mechanism. The specified design differs
+from a naive digitisation of that mechanism, but **nobody on this project has
+performed a claim-by-claim comparison**, so no non-infringement conclusion is
+recorded here — and none should be inferred from this document.
+
+It is worth stating plainly why an earlier draft's reasoning was wrong: it
+argued that implementing from the published patent text was safe because that
+text is a public disclosure. Public disclosure and clean-room provenance are
+*copyright* concepts. They have no bearing on patent infringement, which is
+what independently building an in-force patent's claimed mechanism is.
+
+Shipping this feature requires one of the following to be recorded first:
+
+1. a design-around verified against the independent claims by qualified **US
+   patent counsel** (note that the project's standing legal-review resource
+   covers DE/EU civil and data-protection law, not US patent analysis — this
+   has to be routed externally);
+2. an explicit, written acceptance of the risk; or
+3. replacement of the mechanism with documented pre-existing program-dependent
+   release art — classic dual-time-constant release has decades of hardware
+   precedent — together with removal of every reference to the patent from
+   code, documentation and marketing.
+
+Shipping a parameter that does nothing would have been worse than shipping
+nothing: parameter IDs are a frozen contract, and a dead control in a saved
+session is permanent. The feature can be added cleanly later.
+
+*This is a defensive engineering note, not legal advice.*
+
+### The Surgical Mute re-voicing
+
+Planned, implemented, measured, reverted. Smooth Open shapes the closing edge
+as well as the opening one, and on the preset whose entire purpose is the
+tightest achievable inter-note silence that cost it the "quieter between notes
+than Natural Decay" guarantee this brief makes in §4. The measurement is in
+`tests/DesignBriefTests.cpp`; the rationale is in `docs/presets.md`.
