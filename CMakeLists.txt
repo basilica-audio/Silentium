@@ -77,25 +77,133 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     presets/factory/listenCheck.json
     presets/factory/expanderGlue.json
     resources/i18n/de.txt
-    # M3 photoreal GUI assets (resources/gui/, copied from the suite's
-    # Blender pre-render pipeline at .scaffold/gui-assets/ - see each asset
-    # family's README there for provenance/verification). The repo is
-    # self-contained: these copies are the ones the plugin ships with.
-    resources/gui/knob_brass_strip_160px_128f.png
-    resources/gui/knob_brass_strip_320px_128f.png
-    resources/gui/toggle_brass_strip_100px_4f.png
-    resources/gui/toggle_brass_strip_200px_4f.png
-    resources/gui/vu_brass_face_480x270.png
-    resources/gui/vu_brass_face_960x540.png
-    resources/gui/vu_brass_needle_480x270.png
-    resources/gui/vu_brass_needle_960x540.png
-    resources/gui/vu_brass_glass_480x270.png
-    resources/gui/vu_brass_glass_960x540.png
-    resources/gui/faceplate_silentium_900x600.png
-    resources/gui/faceplate_silentium_1800x1200.png
-    # Brand icon (already the plugin's ICON_BIG; embedded here additionally
-    # so the editor can draw it in the faceplate's header roundel).
-    docs/assets/icon-256.png
+    # Preset-bar / scale-button brass caps (unrelated to the faceplate
+    # rework below - BasilicaLookAndFeel.cpp::drawButtonBackground() 3-slices
+    # these for every juce::TextButton the suite draws, e.g. the preset bar's
+    # navigation buttons and this editor's scale-cycle button). Deliberately
+    # OUT OF SCOPE for the master-05 baseline revision (BasilicaLookAndFeel.{h,cpp}
+    # is not in that revision's file whitelist) - kept embedded even though
+    # an earlier draft of this revision's asset-removal list named them
+    # alongside the (genuinely unrelated) toggle_brass_v2_strip_* footer-
+    # toggle asset family; removing them would break BasilicaLookAndFeel.cpp's
+    # compile.
+    resources/gui/button_brass_v1_normal_40x28.png
+    resources/gui/button_brass_v1_normal_80x56.png
+    resources/gui/button_brass_v1_hover_40x28.png
+    resources/gui/button_brass_v1_hover_80x56.png
+    # v0.3.4 MASTER-05 BASELINE ARCHITECTURE (this revision) - a full
+    # replacement of the three prior "component composition" GUI attempts
+    # (v0.3.1's bare JUCE-drawn background, v0.3.2's single-master
+    # faceplate, v0.3.3's true component assembly of many standalone
+    # master-reference PNGs), per Yves' explicit rejection of that
+    # Frankenstein result. Exactly THREE faceplate images now ship, copied
+    # from .scaffold/gui-assets/faceplate-silentium-v3/ (repo-relative to
+    # the suite root, one level above this repo):
+    #   - master-05.png: the SOLE faceplate baseline. Bakes the obsidian
+    #     plate, brass bevel, 4 corner screws, rose flourish, both VU dial
+    #     faces (empty - no needle, no LED), all 9 knobs at 12 o'clock rest,
+    #     both toggles UP/on, and both tube-vent grilles at normal glow -
+    #     ALL of it, in one image. PluginEditor.cpp draws only this for the
+    #     entire plate when every toggle is on and the vent-glow mix is at
+    #     its ceiling.
+    #   - master-06.png: identical to master-05 except both toggles point
+    #     DOWN. PluginEditor.cpp blits ONLY a toggle's own small zone crop
+    #     from this image (never the full plate) when that toggle is off.
+    #   - master-glow-dim.png: identical to master-05 except the tube-vent
+    #     glow is at a SUBTLE, dimmer intensity. PluginEditor.cpp
+    #     cross-blends ONLY the two vent-bank region crops between this
+    #     image (low signal) and master-05 itself (the approved ceiling -
+    #     never a third, brighter "hot" frame; master-glow-hot.png/
+    #     master-glow-very-hot.png exist in the scaffold but are
+    #     DELIBERATELY NOT embedded - Yves rejected that look verbatim, see
+    #     PluginEditor.cpp's paint() docs).
+    # PluginEditorLayout.h's geometry table was re-measured directly against
+    # master-05.png by
+    # .scaffold/gui-assets/faceplate-silentium-v3/analysis/measure_master_05.py
+    # (NOT copied from the v0.3.3/master-04 table - a different render
+    # generation).
+    resources/gui/master-05.png
+    resources/gui/master-06.png
+    resources/gui/master-glow-dim.png
+    # Rotating VU needle overlay - v0.3.11 REPLACES the v0.3.5-v0.3.7
+    # filmstrip approach (needle-filmstrip-v1.png/v2.png, a 96-frame Blender
+    # render Yves rejected TWICE - "Du sollst weder mit Blender arbeiten
+    # noch sonst wie selbst was an der Nadel zeichnen. Die soll exakt so
+    # aussehen wie auf dem Master.") with needle-from-master.png: a single
+    # 288x288 RGBA sprite recovered by diffing master-03-raw.png (has
+    # needles) against master-05.png (this build's own faceplate baseline,
+    # has none) - genuine master pixels, never hand-drawn/Blender-rendered/
+    # resampled (see needle-from-master.json's own provenance record,
+    # copied alongside for documentation only, and AnalogMeter.cpp's
+    # bakedAngleDeg docs for why this sprite is drawn at a live
+    # juce::AffineTransform rotation instead of a pre-rotated frame stack).
+    # Round-trip-verified: pasted back at its own pivot with zero rotation,
+    # it diffs to a 0.69/255 mean residual against the source master inside
+    # the needle body. Alpha is transparent within ~43 master px of the
+    # pivot (the sprite's own damping-ring occlusion boundary) - this is
+    # WIDE ENOUGH that master-05's own baked hub-cap/anchor-bar/boss art
+    # (see the crop in this revision's handoff notes) shows through
+    # unmodified there, so - unlike the old filmstrip's v0.3.7 hub-occluder
+    # workaround - no separate occluder redraw is needed any more (removed
+    # this revision; vu-hub-occluder-v1.png stays on disk, unreferenced).
+    resources/gui/needle-from-master.png
+    # Peak-LED overlay - v0.3.11 REPLACES led-master-diff.png (extracted
+    # against a stale registration pass whose measured centres put the LED
+    # visibly on top of a footer toggle - Yves: "Diese PEAK LED ...
+    # merkwürdigerweise auf einem der Kippschalter") with led-from-master.png:
+    # a clean 58x58 RGBA sprite, same master-diff extraction technique
+    # (analysis/led_diff/{register,extract}.py), re-measured per dial
+    # (left AND right independently, not one sprite's position transferred
+    # via a dial-radius fraction - see led-from-master.json's own
+    # offsetFractionTransferErrorPx field for why that fraction is
+    # unreliable, 58px error on the right dial) so each LED lands exactly
+    # where master-03 bakes it: at the top of its own dial bezel. Drawn by
+    # PluginEditor (not AnalogMeter - the LED sits on the PLATE outside
+    # each dial's own bezel, see PluginEditorLayout.h's
+    # ledLCentre1x/ledRCentre1x docs).
+    resources/gui/led-from-master.png
+    # Org emblem (Basilica Audio rose-window medallion) - org-emblem.png is
+    # the CANONICAL org mark: the pure rose-window medallion, circularly
+    # extracted from brand/v2-plastic/raw/org.png along its outer gold ring
+    # (Kasa circle fit, centre (510,517), radius 337px of the 1024px source;
+    # gold colour-threshold alpha, openwork transparent so the plate shows
+    # through) - Yves-approved 2026-07-25 and restored 2026-07-27. The
+    # brand-ROOT org.png line-art variant (rose window with a guitar
+    # silhouette, briefly embedded as org-emblem-basilica-v1.png in v0.3.11)
+    # is NOT the org mark - standing suite rule: NO instruments in the org
+    # emblem ("Das eigentliche Logo ist komplett rund", pure rose window).
+    # That file stays on disk unreferenced. No bezel/ring is added by the
+    # draw call (see PluginEditor.cpp's paint() docs for the
+    # restrained-opacity + soft-shadow-only mounting treatment).
+    resources/gui/org-emblem.png
+    # Rotating knob discs (v0.3.9, item 4) - INNER-DISC variant, gate-approved
+    # 2026-07-25: nine 85x85 RGBA discs, one per knob, extracted directly from
+    # master-05.png's own baked pixels (colour data is an unresampled 1:1
+    # crop, per-knob centre from
+    # .scaffold/gui-assets/faceplate-silentium-v3/knob-discs-manifest.json).
+    # Alpha is cut at 80% of each knob's own fitted radius, so only the
+    # pointer notch + inner knurl are visible when this disc is drawn
+    # rotated live (PluginEditor.cpp's paint()) - the baked outer rim AND its
+    # specular crescent stay part of the static master-05 plate underneath,
+    # which is what rules out a co-rotating highlight (the defect the
+    # PLAIN full-disc variant hit in the rotation proof; see the manifest's
+    # own "innerVariant" record for the measured notch/highlight radii this
+    # 80% cutoff was chosen from). The manifest .json itself is NOT embedded
+    # (provenance only) - its per-knob centre/radius values are hardcoded as
+    # constants in PluginEditor.cpp's knobDiscLayout table instead.
+    resources/gui/knob-disc-0-inner.png
+    resources/gui/knob-disc-1-inner.png
+    resources/gui/knob-disc-2-inner.png
+    resources/gui/knob-disc-3-inner.png
+    resources/gui/knob-disc-4-inner.png
+    resources/gui/knob-disc-5-inner.png
+    resources/gui/knob-disc-6-inner.png
+    resources/gui/knob-disc-7-inner.png
+    resources/gui/knob-disc-8-inner.png
+    # Suite typography: EB Garamond (OFL, resources/fonts/OFL-EBGaramond.txt)
+    # for every JUCE-drawn text surface.
+    resources/fonts/EBGaramond-Regular.ttf
+    resources/fonts/EBGaramond-SemiBold.ttf
 )
 
 # ==============================================================================

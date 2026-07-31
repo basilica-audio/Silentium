@@ -1,0 +1,350 @@
+{
+  "sourceMaster": "master-05.png",
+  "masterCanvasSizePx": [
+    1264,
+    848
+  ],
+  "scaleChain": {
+    "note": "Colour pixels are an unresampled 1:1 crop of master-05's own pixel grid (nearest-integer centre, numpy slice - no interpolation/blur/upscale). The alpha matte's circle centre uses the FULL sub-pixel fitted centre, so silhouette geometry is exact even though colour data is byte-identical to the source. master-05 itself is documented as the suite's 2x-supersampled GUI master; these disc assets inherit that same native resolution - do not upscale them further downstream.",
+    "masterPxToOneXPx": 0.712025,
+    "oneXPxToMasterPx": 1.404444
+  },
+  "canvas": {
+    "sizePx": 85,
+    "centrePx": 42,
+    "featherPx": 1.0
+  },
+  "knobs": [
+    {
+      "index": 0,
+      "assetPath": "knob-disc-0.png",
+      "refinedCentreMasterPx": [
+        379.8,
+        533.9
+      ],
+      "refinedCentre1xPx": [
+        270.427,
+        380.15
+      ],
+      "radiusMasterPx": 36.881,
+      "radius1xPx": 26.26,
+      "diameterMasterPx": 73.762,
+      "diameter1xPx": 52.52,
+      "canvasTopLeftInMasterPx": [
+        338,
+        492
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8678,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 227
+      }
+    },
+    {
+      "index": 1,
+      "assetPath": "knob-disc-1.png",
+      "refinedCentreMasterPx": [
+        505.7,
+        534.1
+      ],
+      "refinedCentre1xPx": [
+        360.071,
+        380.293
+      ],
+      "radiusMasterPx": 36.558,
+      "radius1xPx": 26.03,
+      "diameterMasterPx": 73.116,
+      "diameter1xPx": 52.06,
+      "canvasTopLeftInMasterPx": [
+        464,
+        492
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8602,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 231
+      }
+    },
+    {
+      "index": 2,
+      "assetPath": "knob-disc-2.png",
+      "refinedCentreMasterPx": [
+        631.1,
+        534.1
+      ],
+      "refinedCentre1xPx": [
+        449.359,
+        380.293
+      ],
+      "radiusMasterPx": 36.579,
+      "radius1xPx": 26.045,
+      "diameterMasterPx": 73.158,
+      "diameter1xPx": 52.09,
+      "canvasTopLeftInMasterPx": [
+        589,
+        492
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8607,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 234
+      }
+    },
+    {
+      "index": 3,
+      "assetPath": "knob-disc-3.png",
+      "refinedCentreMasterPx": [
+        756.9,
+        534.2
+      ],
+      "refinedCentre1xPx": [
+        538.932,
+        380.364
+      ],
+      "radiusMasterPx": 36.628,
+      "radius1xPx": 26.08,
+      "diameterMasterPx": 73.256,
+      "diameter1xPx": 52.16,
+      "canvasTopLeftInMasterPx": [
+        715,
+        492
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8618,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 233
+      }
+    },
+    {
+      "index": 4,
+      "assetPath": "knob-disc-4.png",
+      "refinedCentreMasterPx": [
+        883.0,
+        533.3
+      ],
+      "refinedCentre1xPx": [
+        628.718,
+        379.723
+      ],
+      "radiusMasterPx": 37.191,
+      "radius1xPx": 26.481,
+      "diameterMasterPx": 74.382,
+      "diameter1xPx": 52.962,
+      "canvasTopLeftInMasterPx": [
+        841,
+        491
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8751,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 220
+      }
+    },
+    {
+      "index": 5,
+      "assetPath": "knob-disc-5.png",
+      "refinedCentreMasterPx": [
+        443.0,
+        638.0
+      ],
+      "refinedCentre1xPx": [
+        315.427,
+        454.272
+      ],
+      "radiusMasterPx": 36.677,
+      "radius1xPx": 26.115,
+      "diameterMasterPx": 73.354,
+      "diameter1xPx": 52.23,
+      "canvasTopLeftInMasterPx": [
+        401,
+        596
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.863,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 232
+      }
+    },
+    {
+      "index": 6,
+      "assetPath": "knob-disc-6.png",
+      "refinedCentreMasterPx": [
+        568.5,
+        638.5
+      ],
+      "refinedCentre1xPx": [
+        404.786,
+        454.628
+      ],
+      "radiusMasterPx": 36.629,
+      "radius1xPx": 26.081,
+      "diameterMasterPx": 73.258,
+      "diameter1xPx": 52.162,
+      "canvasTopLeftInMasterPx": [
+        526,
+        596
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8619,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 232
+      }
+    },
+    {
+      "index": 7,
+      "assetPath": "knob-disc-7.png",
+      "refinedCentreMasterPx": [
+        694.6,
+        638.6
+      ],
+      "refinedCentre1xPx": [
+        494.573,
+        454.699
+      ],
+      "radiusMasterPx": 36.472,
+      "radius1xPx": 25.969,
+      "diameterMasterPx": 72.944,
+      "diameter1xPx": 51.938,
+      "canvasTopLeftInMasterPx": [
+        653,
+        597
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8582,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 237
+      }
+    },
+    {
+      "index": 8,
+      "assetPath": "knob-disc-8.png",
+      "refinedCentreMasterPx": [
+        820.2,
+        638.0
+      ],
+      "refinedCentre1xPx": [
+        584.003,
+        454.272
+      ],
+      "radiusMasterPx": 36.962,
+      "radius1xPx": 26.318,
+      "diameterMasterPx": 73.924,
+      "diameter1xPx": 52.636,
+      "canvasTopLeftInMasterPx": [
+        778,
+        596
+      ],
+      "canvasSizePx": 85,
+      "contentDiameterFraction": 0.8697,
+      "alphaVerification": {
+        "backgroundMaxAlpha": 0,
+        "backgroundMeanAlpha": 0.0,
+        "edgeBandMeanAlpha": 0.0,
+        "interiorMinAlpha": 255,
+        "nPartialAlphaPixels": 238
+      }
+    }
+  ],
+  "innerVariant": {
+    "note": "Fallback for the co-rotating-highlight-crescent issue found in the rotation proof: only the inner disc (pointer + inner knurl) rotates; the outer rim (incl. the baked specular highlight) is excluded from alpha and stays with the static master-05 background, unrotated, at every angle.",
+    "innerRadiusFraction": 0.8,
+    "justification": "Pointer notch radial extent measured at 51-59% to 71-76% of the fitted full radius across all 9 knobs (narrow-wedge dark-pixel scan); specular highlight blowout (brightness>200) onsets at 77-85% of the fitted radius depending on knob. 0.80 sits with margin above the notch tip and at/inside the highlight onset for 8/9 knobs (knob0's onset at 77.3% leaves a thin sliver of highlight inside 80% - the notch-tip/highlight-onset gap is simply narrow for that one knob).",
+    "knobs": [
+      {
+        "index": 0,
+        "assetPath": "knob-disc-0-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.505,
+        "innerRadius1xPx": 21.008
+      },
+      {
+        "index": 1,
+        "assetPath": "knob-disc-1-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.246,
+        "innerRadius1xPx": 20.824
+      },
+      {
+        "index": 2,
+        "assetPath": "knob-disc-2-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.263,
+        "innerRadius1xPx": 20.836
+      },
+      {
+        "index": 3,
+        "assetPath": "knob-disc-3-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.302,
+        "innerRadius1xPx": 20.864
+      },
+      {
+        "index": 4,
+        "assetPath": "knob-disc-4-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.753,
+        "innerRadius1xPx": 21.185
+      },
+      {
+        "index": 5,
+        "assetPath": "knob-disc-5-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.342,
+        "innerRadius1xPx": 20.892
+      },
+      {
+        "index": 6,
+        "assetPath": "knob-disc-6-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.303,
+        "innerRadius1xPx": 20.865
+      },
+      {
+        "index": 7,
+        "assetPath": "knob-disc-7-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.178,
+        "innerRadius1xPx": 20.775
+      },
+      {
+        "index": 8,
+        "assetPath": "knob-disc-8-inner.png",
+        "innerRadiusFraction": 0.8,
+        "innerRadiusMasterPx": 29.57,
+        "innerRadius1xPx": 21.054
+      }
+    ]
+  }
+}
