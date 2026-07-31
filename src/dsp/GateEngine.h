@@ -1,6 +1,13 @@
 #pragma once
 
+#include "../params/ParameterIds.h"
+#include "LookaheadRamp.h"
+
 #include <juce_dsp/juce_dsp.h>
+
+#include <array>
+#include <atomic>
+#include <cstdint>
 
 // The complete Silentium signal path, independent of juce::AudioProcessor so
 // it can be exercised directly by unit tests without instantiating a full
@@ -137,17 +144,69 @@ public:
     // directly. Off by default.
     void setListenMode (bool shouldListen);
 
-    // Lookahead latency in samples, valid after prepare() has run. Lookahead
-    // is treated as a structural parameter (like an oversampling factor):
-    // its value at the time prepare() runs determines both the applied delay
-    // and the reported latency for the life of that prepared session. Live
-    // changes via setLookaheadMs() take effect on the next prepare() call
-    // (typically triggered by the host re-calling prepareToPlay), not
-    // immediately - this keeps the reported host latency always consistent
-    // with the actual delay applied, without calling into
-    // AudioProcessor::setLatencySamples()/updateHostDisplay() (which are not
-    // safe to call from the audio thread) from inside process().
-    int getLatencySamples() const noexcept { return latencySamples; }
+    //==========================================================================
+    // v0.4.0 additions. Every one of these defaults to the value that
+    // reproduces v0.3.x behaviour bit-for-bit, and each is implemented as a
+    // literal branch around the legacy code rather than as a re-derivation of
+    // it - see the neutrality note on each setter.
+
+    // Downward-expander ratio (1:1 to ParamConstants::maxRatio). At the top
+    // of the range the gain computer takes the *literal* v0.3.x binary path
+    // (target snaps between Range and 0 dB); anything below it follows the
+    // continuous expander curve documented in process(). Default is the top
+    // of the range, so this is neutral until moved.
+    void setRatio (float newRatio);
+
+    // Open/close threshold gap in dB, replacing what was a fixed internal
+    // 3 dB constant before v0.4.0. The default (3 dB) reproduces that
+    // constant exactly.
+    void setHysteresisDb (float newHysteresisDb);
+
+    // Detector characteristic: false = the v0.3.x peak ballistics follower,
+    // true = a 5 ms mean-square (RMS) window. Switching crosses the two
+    // envelopes over in detectorCrossfadeSeconds so the change cannot click;
+    // at rest in peak mode the RMS contribution is exactly zero-weighted, so
+    // peak mode is unchanged.
+    void setDetectorMode (bool shouldUseRms);
+
+    // Sidechain filter order: false = the v0.3.x 12 dB/oct pair, true = a
+    // 24 dB/oct pair (a second biquad per filter, Butterworth Q-paired).
+    // Crossfaded over slopeCrossfadeSeconds on change; at rest in 12 dB/oct
+    // mode the 24 dB/oct chain is exactly zero-weighted.
+    void setScSlope24 (bool shouldUse24dBPerOctave);
+
+    // Smooth Open: shapes the opening gain trajectory with a moving-max plus
+    // cascaded-box smoother that fits inside the existing lookahead window
+    // (see LookaheadRamp.h), so even a 0 ms attack opens along a continuous
+    // ramp. Adds no latency, and is bypassed entirely when Lookahead is 0.
+    // Off by default; toggling crosses the two trajectories over in
+    // smoothOpenCrossfadeSeconds.
+    void setSmoothOpen (bool shouldSmoothOpening);
+
+    // Release trajectory shape: false = the v0.3.x program-dependent
+    // exponential approach, true = a constant-dB/s (dB-linear) fade, so a
+    // full-Range close takes exactly the Release time and the tail's decay
+    // rate never changes. Only the falling branch is affected; the attack
+    // branch is the exponential approach in both shapes.
+    void setReleaseShapeLinear (bool shouldUseLinearRelease);
+
+    // The delay currently applied to the main path, in samples - i.e. the
+    // latency the host must be told about.
+    //
+    // v0.4.0 makes Lookahead a LIVE parameter. Before v0.4.0 it was
+    // structural: a change only took effect on the next prepare(), because
+    // there was no safe way to keep the reported latency consistent with the
+    // applied delay. Now setLookaheadMs() moves the delay immediately, via an
+    // equal-power crossfade between the old and new taps (both always inside
+    // the delay line's fixed capacity, so no allocation), and publishes the
+    // new value here. The owning processor polls this from the message thread
+    // and calls setLatencySamples() there - never from the audio thread. See
+    // SilentiumAudioProcessor::timerCallback().
+    //
+    // Atomic because it is written on the audio thread and read on the
+    // message thread; relaxed ordering is sufficient (it is a single int with
+    // no other state hanging off it).
+    int getLatencySamples() const noexcept { return latencySamples.load (std::memory_order_relaxed); }
 
     // True while the gate is open (including its attack/hold phase), false
     // while closed/releasing towards Range. Cheap, side-effect-free query;
@@ -160,17 +219,131 @@ public:
     // side-effect-free query for the M3 GUI's gain-reduction meter - read
     // on the audio thread right after process() and published to the GUI
     // via an atomic (see SilentiumAudioProcessor::getGainReductionDb()).
-    float getCurrentGainDb() const noexcept { return currentGainDb; }
+    float getCurrentGainDb() const noexcept { return appliedGainDb; }
+
+    //==========================================================================
+    // v0.4.0 F7 - gain-reduction telemetry.
+    //
+    // getCurrentGainDb() above reports the value at the END of the last
+    // processed block, which is all a needle-style meter needs but hides
+    // everything that happened inside the block: at a 1024-sample block size
+    // a complete open-and-close cycle can be invisible. These two report the
+    // extrema actually reached during the last process() call, so a display
+    // can show the real gating action rather than a stroboscopic sample of
+    // it. Both are plain reads of values written by the audio thread right
+    // before process() returned; the owning processor republishes them as
+    // relaxed atomics.
+    float getBlockMinGainDb() const noexcept { return blockMinGainDb; }
+    float getBlockMaxGainDb() const noexcept { return blockMaxGainDb; }
+
+    // One telemetry point: the running sample position it was taken at, and
+    // the lowest applied gain over the preceding sub-block.
+    struct GainReductionPoint
+    {
+        std::int64_t sampleTime = 0;
+        float gainReductionDb = 0.0f;
+    };
+
+    // Fixed-capacity single-producer/single-consumer ring for those points.
+    // The audio thread pushes; a display thread pops. Deliberately REFUSES to
+    // write when full rather than overwriting the oldest unread entry: a
+    // consumer that stalls briefly then resumes gets a contiguous, correctly
+    // ordered history with a gap at the end, instead of a silently corrupted
+    // one. Storage is a fixed member array, so pushing never allocates.
+    class GainReductionHistory
+    {
+    public:
+        static constexpr int capacity = 2048; // power of two - the mask below depends on it
+
+        bool push (const GainReductionPoint& point) noexcept
+        {
+            const auto write = writeIndex.load (std::memory_order_relaxed);
+            const auto next = (write + 1) & mask;
+
+            if (next == readIndex.load (std::memory_order_acquire))
+                return false; // full: never clobber an unread entry
+
+            points[static_cast<size_t> (write)] = point;
+            writeIndex.store (next, std::memory_order_release);
+            return true;
+        }
+
+        bool pop (GainReductionPoint& result) noexcept
+        {
+            const auto read = readIndex.load (std::memory_order_relaxed);
+
+            if (read == writeIndex.load (std::memory_order_acquire))
+                return false; // empty
+
+            result = points[static_cast<size_t> (read)];
+            readIndex.store ((read + 1) & mask, std::memory_order_release);
+            return true;
+        }
+
+        int getNumReady() const noexcept
+        {
+            const auto write = writeIndex.load (std::memory_order_acquire);
+            const auto read = readIndex.load (std::memory_order_acquire);
+            return (write - read + capacity) & mask;
+        }
+
+        void clear() noexcept
+        {
+            readIndex.store (0, std::memory_order_relaxed);
+            writeIndex.store (0, std::memory_order_relaxed);
+        }
+
+    private:
+        static constexpr int mask = capacity - 1;
+
+        std::array<GainReductionPoint, static_cast<size_t> (capacity)> points {};
+        std::atomic<int> readIndex { 0 };
+        std::atomic<int> writeIndex { 0 };
+    };
+
+    // The consumer side of the telemetry ring. Nothing in v0.4.0 reads it in
+    // production - the display work that will is a later, GUI-side change -
+    // but the producer and the ring itself ship and are tested now, so that
+    // work is a pure addition rather than an engine change.
+    GainReductionHistory& getGainReductionHistory() noexcept { return gainReductionHistory; }
+
+    // How many samples one telemetry point summarises.
+    static constexpr int telemetryIntervalSamples = 64;
 
 private:
     // Butterworth (maximally-flat) Q for the sidechain HPF.
     static constexpr float filterQ = juce::MathConstants<float>::sqrt2 / 2.0f;
 
-    // Fixed hysteresis: the close threshold sits this many dB below the
+    // Default hysteresis: the close threshold sits this many dB below the
     // open (Threshold) value, so the two thresholds never coincide - the
     // single most common cause of gate chatter on a signal hovering near one
-    // threshold.
-    static constexpr float hysteresisDb = 3.0f;
+    // threshold. Fixed internally before v0.4.0; now the default of the
+    // user-facing Hysteresis parameter (see setHysteresisDb()), which is why
+    // this value must never change: it is what makes a pre-v0.4.0 session
+    // render identically.
+    static constexpr float defaultHysteresisDb = 3.0f;
+
+    // v0.4.0 RMS detector (research-gate-expander.md §2.1): a one-pole on
+    // the squared detection signal. 5 ms is short enough to catch a pick
+    // attack and long enough to stop a low-frequency fundamental's own
+    // period from rippling the envelope into chatter.
+    static constexpr float rmsTimeConstantMs = 5.0f;
+
+    // Bias added to the mean-square before the square root, so a fully
+    // silent detection path cannot produce a denormal or a log of zero.
+    static constexpr double rmsEpsilon = 1.0e-30;
+
+    // Q values of the two sections of a 4th-order Butterworth response, used
+    // by the 24 dB/oct sidechain mode (research-gate-expander.md §2.7). The
+    // 12 dB/oct mode keeps its own single-section chain at filterQ, untouched.
+    static constexpr float butterworth4thOrderQ1 = 0.5411961f;
+    static constexpr float butterworth4thOrderQ2 = 1.3065630f;
+
+    // Crossfade times for the two mode switches that would otherwise step the
+    // detection envelope discontinuously.
+    static constexpr double detectorCrossfadeSeconds = 0.005;
+    static constexpr double slopeCrossfadeSeconds = 0.010;
+    static constexpr double smoothOpenCrossfadeSeconds = 0.010;
 
     // Envelope-follower ballistics (fixed, not user-exposed): fast attack so
     // transients are caught almost immediately, moderate release so the
@@ -192,6 +365,10 @@ private:
     // Upper bound on Knee (see ParameterLayout.cpp); used only to clamp
     // defensively, the same way clampBelowNyquist clamps SC HPF.
     static constexpr float maxKneeDb = 24.0f;
+
+    // Upper bound on Hysteresis (see ParameterLayout.cpp), clamped for the
+    // same defensive reason.
+    static constexpr float maxHysteresisDb = 12.0f;
 
     // v0.2.0 program-dependent ramp (see process()'s gain-computer comment
     // for the full mechanism): the exponential approach is calibrated so a
@@ -225,6 +402,23 @@ private:
     // class-level docs.
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scLowPass;
 
+    // v0.4.0 24 dB/oct sidechain chain: a complete, independent second copy
+    // of the HPF->LPF pair, each stage Butterworth Q-paired so the cascade is
+    // a true 4th-order response. Deliberately a PARALLEL chain rather than an
+    // extra section spliced into the 12 dB/oct one: that keeps the 12 dB/oct
+    // path literally untouched (its filters keep filterQ and see exactly the
+    // same input as before), and it makes the mode switch a plain crossfade
+    // between two continuously-running, always-warm chains instead of a
+    // discontinuity plus a filter settling transient. Both chains run
+    // unconditionally for the same reason - a chain that is only stepped
+    // while engaged restarts from stale state on every switch. The cost is
+    // four biquads per channel on the (scratch) detection path only, which
+    // the v0.4.0 CPU budget accounts for.
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scHighPass24a;
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scHighPass24b;
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scLowPass24a;
+    juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scLowPass24b;
+
     // Mono (1-channel) peak envelope follower fed by the stereo-linked
     // max|.| of the sidechain-filtered detection signal.
     juce::dsp::BallisticsFilter<float> envelopeFollower;
@@ -237,6 +431,18 @@ private:
     // maximum block size declared there; never resized on the audio thread.
     juce::AudioBuffer<float> detectionBuffer;
     juce::AudioBuffer<float> monoEnvelopeBuffer;
+
+    // v0.4.0: the 24 dB/oct chain's own copy of the detection signal (it
+    // filters the same input independently of the 12 dB/oct chain), and the
+    // stereo-linked max|.| of it, kept so the linked signal that feeds the
+    // envelope followers can itself be crossfaded between the two slopes.
+    juce::AudioBuffer<float> detection24Buffer;
+    juce::AudioBuffer<float> mono24Buffer;
+
+    // v0.4.0: the RMS detector's envelope, computed alongside the peak
+    // follower's so switching between them is a crossfade of two live
+    // signals rather than a jump to a cold one.
+    juce::AudioBuffer<float> monoRmsBuffer;
 
     // Sample-count capacity detectionBuffer/monoEnvelopeBuffer were sized
     // for in prepare() (== spec.maximumBlockSize there, captured here
@@ -265,12 +471,69 @@ private:
     bool duckingMode = false;
     bool listenMode = false;
 
+    // v0.4.0 commanded values, all at their exact-neutral defaults here.
+    float lastRatio = ParamConstants::maxRatio;
+    float lastHysteresisDb = defaultHysteresisDb;
+    bool useRmsDetector = false;
+    bool use24dBPerOctaveSlope = false;
+    bool useLinearReleaseShape = false;
+    bool useSmoothOpen = false;
+
+    // Smooth Open's control-rate smoother (see LookaheadRamp.h). Runs on
+    // every block regardless of whether Smooth Open is engaged, for the same
+    // reason the RMS detector does: so the trajectory it holds is warm when
+    // the crossfade towards it begins.
+    LookaheadRamp openingRamp;
+
+    // Crossfade weights: 0 == the legacy (peak / 12 dB per octave) path
+    // contributes alone, 1 == the v0.4.0 path does. Linear smoothing, so a
+    // weight parked at 0 multiplies the new path out entirely and the legacy
+    // path's samples pass through byte-for-byte.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> detectorMix;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> slopeMix;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothOpenMix;
+
+    // One-pole mean-square accumulator behind the RMS detector, plus its
+    // coefficient (recomputed only in prepare(), never per sample).
+    double rmsAccumulator = 0.0;
+    double rmsCoefficient = 0.0;
+
     // Gate state machine, advanced one sample at a time in process().
     bool gateOpen = false;
     int holdCounterSamples = 0;
+
+    // The ballistics' own output: the state variable the attack/release ramp
+    // integrates. Smooth Open shapes this into appliedGainDb below without
+    // feeding back into it, so the ballistics behave identically whether or
+    // not Smooth Open is engaged.
     float currentGainDb = -60.0f;
 
-    int latencySamples = 0;
+    // The gain actually multiplied into the main path, and what
+    // getCurrentGainDb() reports. Equal to currentGainDb whenever Smooth Open
+    // is off (its default), so the metering contract is unchanged.
+    float appliedGainDb = -60.0f;
+
+    // F7 telemetry state: per-block extrema of appliedGainDb, plus the
+    // running sub-block accumulator behind the history ring.
+    float blockMinGainDb = 0.0f;
+    float blockMaxGainDb = 0.0f;
+    float telemetryRunningMinDb = 0.0f;
+    int telemetryCounter = 0;
+    std::int64_t telemetrySampleTime = 0;
+    GainReductionHistory gainReductionHistory;
+
+    // F6 live lookahead: the tap currently being faded out, the tap being
+    // faded in (also the value reported as latency), and the crossfade
+    // position. delayCrossfade parked at 1 means "no transition in flight" -
+    // the single-tap read path below, i.e. exactly v0.3.x.
+    int previousDelaySamples = 0;
+    int targetDelaySamples = 0;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> delayCrossfade;
+    static constexpr double delayCrossfadeSeconds = 0.010;
+
+    void beginDelayCrossfadeTo (int newDelaySamples);
+
+    std::atomic<int> latencySamples { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GateEngine)
 };

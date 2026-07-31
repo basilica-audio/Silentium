@@ -1,7 +1,7 @@
 {
     "format": "basilica-preset-1",
     "plugin": "com.yvesvogl.silentium",
-    "pluginVersion": "0.2.0",
+    "pluginVersion": "0.4.0",
     "name": "Chug Lock",
     "category": "Guitar",
     "parameters": {
@@ -15,6 +15,7 @@
         "scLowpass": 16000.0,
         "knee": 0.0,
         "duck": 0.0,
-        "listen": 0.0
+        "listen": 0.0,
+        "smoothOpen": 1.0
     }
 }

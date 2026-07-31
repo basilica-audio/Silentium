@@ -10,7 +10,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment ta
 # here at the top level avoids it being enabled implicitly deeper inside
 # JUCE's CMake helpers, which has been observed to break Ninja's generate
 # step (missing CMAKE_C_COMPILE_OBJECT rule variable).
-project(Silentium VERSION 0.3.1 LANGUAGES C CXX)
+project(Silentium VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -75,6 +75,7 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     presets/factory/chugLock.json
     presets/factory/duckUnderLead.json
     presets/factory/listenCheck.json
+    presets/factory/expanderGlue.json
     resources/i18n/de.txt
     # Preset-bar / scale-button brass caps (unrelated to the faceplate
     # rework below - BasilicaLookAndFeel.cpp::drawButtonBackground() 3-slices
@@ -263,11 +264,32 @@ file(GLOB_RECURSE SilentiumTestSources CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.h")
 
+# tests/tools/ holds standalone offline executables (each with its own main()),
+# not Catch2 test translation units - they must never be linked into the Tests
+# binary. See the GoldenRenderHarness target below.
+list(FILTER SilentiumTestSources EXCLUDE REGEX "/tests/tools/")
+
 add_executable(Tests ${SilentiumTestSources})
 
 target_compile_features(Tests PRIVATE cxx_std_20)
 
-target_link_libraries(Tests PRIVATE SharedCode Catch2::Catch2)
+# tests/AllocationGuard.{h,cpp} replaces the global operator new/delete so the
+# real-time tests can assert that processBlock() never allocates. Clang and GCC
+# treat the library operators as builtins with no observable side effects, which
+# lets an optimised build elide allocations outright and reorder the counter
+# reads around the ones it keeps - in a Release build the guard then counts zero
+# for everything, including its own deliberate-allocation self-test, and every
+# "allocates nothing" assertion silently becomes vacuous. These flags are the
+# documented way to tell them a replacement with side effects exists. MSVC does
+# not perform the transform and needs no equivalent.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(Tests PRIVATE -fno-builtin-operator-new -fno-builtin-operator-delete)
+endif()
+
+# juce_cryptography is linked into the test/tooling targets ONLY (never into
+# the shipped plugin, which has no use for it): tests/GoldenFixture.h uses
+# juce::SHA256 for the cross-version golden-render digests.
+target_link_libraries(Tests PRIVATE SharedCode Catch2::Catch2 juce::juce_cryptography)
 
 # Copy over the plugin target's compile definitions (JucePlugin_* macros etc.)
 # so plugin code compiles identically when built as part of the Tests binary.
@@ -287,3 +309,26 @@ else()
 endif()
 
 catch_discover_tests(Tests DISCOVERY_MODE ${SilentiumDiscoveryMode})
+
+# ==============================================================================
+# Offline tooling
+# ==============================================================================
+#
+# GoldenRenderHarness regenerates tests/data/GoldenRenders.h - the cross-version
+# golden artifacts the neutrality tests (T1/T4/T20) compare against. It is only
+# ever run by hand, at a checkout of the PREVIOUS release's engine sources; see
+# tests/data/README.md and the file header for the exact procedure. It is built
+# as part of the normal build (rather than EXCLUDE_FROM_ALL) purely so it cannot
+# silently rot out of sync with the fixture header it shares with the tests.
+# ==============================================================================
+
+add_executable(GoldenRenderHarness "${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/GoldenRenderHarness.cpp")
+
+target_compile_features(GoldenRenderHarness PRIVATE cxx_std_20)
+
+target_link_libraries(GoldenRenderHarness PRIVATE SharedCode juce::juce_cryptography)
+
+target_compile_definitions(GoldenRenderHarness PRIVATE
+    $<TARGET_PROPERTY:Silentium,COMPILE_DEFINITIONS>
+    JUCE_MODAL_LOOPS_PERMITTED=1
+)

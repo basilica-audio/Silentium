@@ -1,7 +1,7 @@
 {
     "format": "basilica-preset-1",
     "plugin": "com.yvesvogl.silentium",
-    "pluginVersion": "0.2.0",
+    "pluginVersion": "0.4.0",
     "name": "Surgical Mute",
     "category": "Guitar",
     "parameters": {

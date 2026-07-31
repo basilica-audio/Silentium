@@ -43,13 +43,13 @@ jobs:
     needs: create-release
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set CPM source cache path
         run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
 
       - name: Cache CPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
           key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
@@ -125,12 +125,12 @@ jobs:
     needs: create-release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set CPM source cache path
         shell: bash
         run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
       - name: Cache CPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/CPM
           key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}

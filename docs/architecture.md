@@ -132,3 +132,96 @@ Lookahead is treated as a **structural** parameter, the same way an oversampling
 ## M2 preset system
 
 `src/presets/PresetManager.{h,cpp}` + `src/presets/PresetBar.{h,cpp}` implement the suite-wide M2 preset system (`.scaffold/specs/preset-system-m2.md`), copied from `basilica-audio/nave`'s pilot implementation (`docs/preset-system-notes.md` there is the replication recipe) with zero Silentium-specific code beyond the small `PresetManagerConfig`/`FactoryPresetAsset` construction in `PluginProcessor.cpp`. Nine factory presets (`presets/factory/*.json`, embedded via `juce_add_binary_data`) are documented one-line-each in `docs/presets.md`. The M2 i18n frame (`src/presets/Localisation.{h,cpp}`, `resources/i18n/de.txt`) wraps every `PresetBar` frame string in `TRANS()`/`juce::translate()` and selects German automatically from `juce::SystemStats::getUserLanguage()` at editor construction; core/DSP parameter names are never translated anywhere in this plugin.
+
+
+## v0.4.0 additions
+
+### Where the new stages sit
+
+The v0.3.x topology is unchanged; v0.4.0 adds one parallel branch in the
+detection path, one alternative law in the gain computer, and one smoother
+after it.
+
+```
+                 +-- SC HPF -> SC LPF ----------------+
+  detection in --|   (12 dB/oct, Q = 0.707)           |-- crossfade --+
+                 +-- SC HPF x2 -> SC LPF x2 ----------+   (SC Slope)  |
+                     (24 dB/oct, Butterworth Q pair)                  |
+                                                                      v
+                                              stereo-linked max|.| over channels
+                                                                      |
+                                        +-- peak ballistics ----------+
+                                        |                             |
+                                        +-- 5 ms mean-square ---------+
+                                                     |
+                                            crossfade (Detector)
+                                                     |
+                                       hysteresis + hold state machine
+                                                     |
+                        +-- binary target (Ratio at maximum: the v0.3.x path)
+                        |
+                        +-- expander curve (Ratio below maximum)
+                                                     |
+                                 attack / release ballistics
+                              (exponential, or dB-linear per Release Shape)
+                                                     |
+                                     LookaheadRamp (Smooth Open)
+                                                     |
+                                        applied to the delayed main path
+```
+
+### Why the 24 dB/oct chain is parallel rather than spliced in
+
+Adding a second biquad in series with the existing sidechain filters would
+have been fewer lines. It was rejected for two reasons. First, a true
+4th-order Butterworth needs *both* sections Q-paired (0.5412 and 1.3066), so
+the existing section's Q would have had to change with the mode - and then the
+12 dB/oct path is no longer literally the old code. Second, a chain that is
+only stepped while it is selected restarts from cold state on every switch,
+and a filter settling transient under a crossfade is still audible. Running
+two complete, always-warm chains and crossfading the detection signal between
+them costs four biquads per channel on a scratch buffer and makes both
+problems disappear. The blend is applied to the detection signal itself rather
+than to the envelope, so the stereo link, both detectors and Listen mode all
+see one consistent signal.
+
+### Why Smooth Open is in series, not a parallel max
+
+The obvious formulation is `max(ballistic, smoothed)` - keep whichever is more
+open. It does not work. With Attack at 0 ms the ballistic gain covers the
+entire Range in a single sample, so at the opening edge the raw step wins the
+max while the smoothed ramp has barely started, and the click the feature
+exists to remove survives untouched. Applied in series the step is absorbed:
+Attack at 0 ms yields the pure triangular-kernel ramp, and a slow attack -
+already smoother than the kernel - passes through essentially unchanged.
+
+The smoother runs on the control signal in parallel *in time* with the audio
+delay, so it adds no latency. A backward moving-max delays falls, not rises: a
+rising edge passes it instantly, and the two-box cascade of total length equal
+to the lookahead spreads that edge linearly across the window, finishing
+exactly as the delayed transient leaves the delay line. The moving-max window
+therefore only affects the closing side, where it acts as an implicit pre-hold
+of at most half the lookahead.
+
+### Why the latency hand-off is a timer, not an AsyncUpdater
+
+Live Lookahead needs `setLatencySamples()`, which is message-thread-only, to
+be called in response to something the audio thread noticed.
+`juce::AsyncUpdater` is the usual answer, but `triggerAsyncUpdate()` has to be
+called from `processBlock()`, and it posts to the MessageManager's queue -
+taking a CriticalSection and potentially growing an array. Neither belongs on
+the audio thread. Instead the engine publishes the new delay to a relaxed
+atomic and the processor polls it from a 25 ms timer. The contract the brief
+specified is preserved exactly (the host is notified promptly, and only ever
+from the message thread) and `processBlock()` stays provably allocation-free,
+which `tests/RobustnessTests.cpp` asserts with a guard around the very block
+that moves the lookahead.
+
+### State schema
+
+Saved state carries `stateVersion="2"` as an attribute on the root XML
+element. A state without it is schema 1 (v0.3.x and earlier) and needs no
+transform: every parameter this release added defaults to the value that
+reproduces v0.3.x, and APVTS leaves parameters absent from a state at their
+defaults. The version switch in `setStateInformation()` exists so a future
+change that *does* need a transform has an obvious, already-exercised seam.
