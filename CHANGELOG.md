@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-31
+
+Race-fix patch release.
+
+### Fixed
+
+- **Data race on latency reporting between the host thread and the live-Lookahead timer** (PR #34, ThreadSanitizer-confirmed). `prepareToPlay()` (host-chosen thread) and the live-Lookahead `timerCallback()` (JUCE message thread) both called `AudioProcessor::setLatencySamples()`/`getLatencySamples()` unsynchronized — the same defect class fixed across the suite in Nave, Requiem and Triptych. Fixed by serializing the two entry points behind a mutex the audio thread never takes. Red/green-verified under TSan. New regression guard: `tests/CrossThreadReprepareTests.cpp`.
+
 ## [0.4.0] - 2026-07-27
 
 Silentium becomes a gate *and* a downward expander, opens without a click even
