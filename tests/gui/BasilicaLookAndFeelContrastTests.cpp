@@ -79,3 +79,28 @@ TEST_CASE ("BasilicaLookAndFeel's label text/backing-chip colour pair clears WCA
     // (see BasilicaLookAndFeel.cpp's drawLabel() docs).
     CHECK (backingColour.isOpaque());
 }
+
+TEST_CASE ("Preset-bar button text clears WCAG AA 4.5:1 against the button face's brightest tone", "[gui][a11y]")
+{
+    using basilica::gui::BasilicaLookAndFeel;
+
+    // v0.3.1 reskin: warm-gold lettering over the button asset's baked
+    // near-black face panel. The colour pair comes from the SAME accessors
+    // drawButtonText() uses; the face side is a conservative BRIGHTEST-tone
+    // bound with deliberate headroom over the measured asset (brightest
+    // measured text-region luminance 0.032 across all four asset files,
+    // bound ~0.055 - see BasilicaLookAndFeel.cpp) - for light-on-dark text
+    // the brightest background tone is the worst case, so clearing 4.5:1
+    // against the bound clears it everywhere on the face. (The preset-name
+    // display reuses the gold/backing-chip pair asserted above. The
+    // dark-text-on-bare-brass alternative was measured at 1.6-3.5:1 and
+    // rejected - no ink colour clears 4.5:1 on a midtone brass.)
+    const auto textColour = BasilicaLookAndFeel::getButtonTextColour();
+    const auto faceBrightest = BasilicaLookAndFeel::getButtonFaceBrightestColour();
+
+    INFO ("button text colour = " << textColour.toDisplayString (true).toStdString());
+    INFO ("face brightest bound = " << faceBrightest.toDisplayString (true).toStdString());
+
+    CHECK (contrastRatio (textColour, faceBrightest) >= 4.5);
+    CHECK (faceBrightest.isOpaque());
+}

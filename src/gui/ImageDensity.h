@@ -28,7 +28,13 @@ namespace basilica::gui
         if (! image1x.isValid())
             return image2x;
 
-        constexpr float tierSwitchMargin = 1.25f;
-        return (float) currentDrawWidth > (float) native1xWidth * tierSwitchMargin ? image2x : image1x;
+        // v0.3.1: margin dropped from 1.25 to 1.0 - the old margin kept the
+        // @1x tier in use up to 1.25x its native size, so at the 200% window
+        // step an 84px knob drew a 168px rect from the 160px strip (a
+        // subtle UPSCALE, one of the causes of the rejected "unscharf"
+        // rendering). Any draw width beyond the @1x native size now switches
+        // to the @2x tier; there is no flapping risk because the editor's
+        // stepped scaling only ever produces a handful of fixed widths.
+        return currentDrawWidth > native1xWidth ? image2x : image1x;
     }
 }

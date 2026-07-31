@@ -1,0 +1,70 @@
+{
+  "spriteSize": 58,
+  "ledCentreInMaster": [
+    169.86260361448004,
+    154.70570063984582
+  ],
+  "pivotXFrac": 0.5,
+  "pivotYFrac": 0.5,
+  "sourceDial": "left",
+  "masterWidth": 1264,
+  "masterHeight": 848,
+  "haloReachPx": 18.75631728058181,
+  "coreRadiusPx": 6.873883491872873,
+  "dialCentreInMaster": [
+    279.3798352592431,
+    262.87385371052136
+  ],
+  "dialRadiusPx": 207.21287805426422,
+  "offsetFromDialCentreFracRadius": [
+    -0.5285252184764456,
+    -0.5220146261486163
+  ],
+  "rightDialLedCentreInMasterDirectlyMeasured": [
+    789.6933966948222,
+    153.86513933267366
+  ],
+  "rightDialLedCentrePredictedByOffsetFraction": [
+    847.6185474640494,
+    169.05645016376286
+  ],
+  "offsetFractionTransferErrorPx": [
+    57.925150769227116,
+    15.191310831089197
+  ],
+  "provenance": "Extracted via master-diff, not hand-authored: pixel-wise diff of master-03-raw.png (both peak LEDs lit) against master-05.png (same faceplate re-rendered with neither LED lit) after local sub-pixel registration to null out inter-render drift; connected-component filtered to the LED's core+halo blob; soft alpha taken from the registered diff magnitude so the halo survives as a gradient; RGB taken unshifted directly from master-03-raw.png. Centre is the diff-weighted centroid of the lit blob (radially symmetric core+halo). offsetFromDialCentreFracRadius lets this same sprite be placed on either dial: ledPos = dialCentre + offsetFrac * dialRadius -- BUT this is only approximate: the two dials are not perfectly congruent in this render (measured transfer error is +57.9,+15.2 px on the right dial), so prefer a direct per-dial diff measurement (rightDialLedCentreInMasterDirectlyMeasured, done the same way as the left LED) whenever both masters are available, and fall back to the offset fraction only when they are not.",
+  "debug": {
+    "registration_dy": -0.01592886943056926,
+    "registration_dx": -0.6999999999999797,
+    "chosen_component_area_px": 539,
+    "corner_alphas": {
+      "top_left": 0.0,
+      "top_right": 0.0,
+      "bottom_left": 0.0,
+      "bottom_right": 0.0
+    },
+    "alpha_max": 255.0,
+    "alpha_mean_nonzero": 119.30219874328881,
+    "alpha_opaque_gt200_px": 250,
+    "alpha_nonzero_px": 909,
+    "alpha_low_1_15_px": 0,
+    "alpha_histogram_16bins": {
+      "0": 2455,
+      "16": 33,
+      "32": 233,
+      "48": 139,
+      "64": 74,
+      "80": 55,
+      "96": 32,
+      "112": 17,
+      "128": 9,
+      "144": 23,
+      "160": 15,
+      "176": 22,
+      "192": 13,
+      "208": 17,
+      "224": 16,
+      "240": 211
+    }
+  }
+}

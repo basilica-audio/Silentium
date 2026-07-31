@@ -23,12 +23,11 @@
 // directly".
 namespace
 {
-    // All FilmstripKnob/FilmstripToggle instances and the scale button are
-    // direct children of the editor itself (see PluginEditor.cpp's
-    // addAndMakeVisible calls - none of them live inside a further nested
-    // sub-container), so a flat (non-recursive) scan of direct children is
-    // sufficient and avoids needing any additional test-only accessors on
-    // the editor.
+    // All knob/toggle/scale-button controls are direct children of the
+    // editor itself (see PluginEditor.cpp's addAndMakeVisible calls - none
+    // of them live inside a further nested sub-container), so a flat
+    // (non-recursive) scan of direct children is sufficient and avoids
+    // needing any additional test-only accessors on the editor.
     template <typename ComponentType>
     ComponentType* findChildByTitle (juce::Component& parent, const juce::String& title)
     {
@@ -44,8 +43,8 @@ namespace
 
     // juce::Button::createAccessibilityHandler() (unlike juce::Slider's) is
     // declared PROTECTED (JUCE 8.0.14 juce_Button.h) - calling it through a
-    // FilmstripToggle*/juce::Button* would fail to compile even though it's
-    // the exact same public virtual originally declared on juce::Component.
+    // juce::ToggleButton*/juce::Button* would fail to compile even though
+    // it's the exact same public virtual originally declared on juce::Component.
     // Per the C++ standard's access-control-for-virtual-calls rule
     // ([class.access.virt]), access is checked against the STATIC type used
     // to name the call, not the dynamic override - calling through a
@@ -83,7 +82,13 @@ TEST_CASE ("Knob accessibility value strings include their declared unit", "[gui
 
     for (const auto& expectation : expectations)
     {
-        auto* knob = findChildByTitle<basilica::gui::FilmstripKnob> (editor, expectation.label);
+        // v0.3.4: the 9 knobs are a plain, fully transparent-draw
+        // juce::Slider (see PluginEditor.h's docs) rather than any custom
+        // Slider subclass - the accessibility wiring under test
+        // (SliderAttachment's textFromValueFunction, set identically in
+        // PluginEditor.cpp's configureKnob() regardless of the concrete
+        // Slider type) is unaffected by that change.
+        auto* knob = findChildByTitle<juce::Slider> (editor, expectation.label);
         REQUIRE (knob != nullptr);
 
         const auto handler = createHandlerForTest (*knob);
@@ -104,18 +109,19 @@ TEST_CASE ("Toggle accessible name matches its visual label and exposes a checka
     processor.prepareToPlay (48000.0, 512);
     SilentiumAudioProcessorEditor editor (processor);
 
-    auto* toggle = findChildByTitle<basilica::gui::FilmstripToggle> (editor, "Duck");
+    auto* toggle = findChildByTitle<juce::ToggleButton> (editor, "Duck");
     REQUIRE (toggle != nullptr);
     CHECK (toggle->getTitle() == "Duck");
 
     const auto handler = createHandlerForTest (*toggle);
     REQUIRE (handler != nullptr);
 
-    // FilmstripToggle calls setClickingTogglesState(true) (FilmstripToggle.cpp),
-    // so juce::Button::isToggleable() is true and the base juce::Button
-    // AccessibilityHandler correctly exposes checkable/checked state
-    // regardless of the exact reported role (see A-06, deferred - role is a
-    // separate, non-blocking nuance from state, which already works).
+    // juce::ToggleButton's own constructor calls setClickingTogglesState(true)
+    // (JUCE 8.0.14 juce_ToggleButton.cpp), so juce::Button::isToggleable()
+    // is true and the base juce::Button AccessibilityHandler correctly
+    // exposes checkable/checked state regardless of the exact reported role
+    // (see A-06, deferred - role is a separate, non-blocking nuance from
+    // state, which already works).
     CHECK (handler->getCurrentState().isCheckable());
 }
 
