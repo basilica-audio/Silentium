@@ -92,6 +92,29 @@ Input --> Lookahead |                                     hysteresis comparator 
    signal — for auditioning exactly what the detector hears while you dial
    in SC HPF/SC LPF and Threshold.
 
+### Reported latency
+
+Lookahead is Silentium's only source of reported latency. On `prepareToPlay()`
+the plugin reports `Lookahead × sample rate`, rounded to samples, via
+`setLatencySamples()` — at Lookahead 0 ms that is exactly 0 samples, and
+nothing else in the signal path adds any.
+
+*(v0.4.0)* Moving Lookahead while audio is running no longer waits for the
+host to re-prepare the plugin: the delay itself crossfades to its new length
+immediately (a 10 ms equal-power blend between the old and new tap), but the
+*reported* number the host uses for delay compensation only catches up a
+moment later, on the next tick of a 25 ms poll — the audio thread never calls
+`setLatencySamples()` directly, since that call isn't safe to make from
+there. In practice this means a host that keeps its message loop running
+picks up the new latency within about 25 ms of the knob move, but a host
+that doesn't pump that loop (e.g. mid-bounce) never learns of the change, so
+moving Lookahead during a bounce/render is not a good idea.
+
+Turning **Smooth Open** on adds no reported latency at all: with it engaged
+or bypassed, the host sees the identical figure at Lookahead 0, 2.5, 5 and
+20 ms — the opening ramp is shaped entirely inside the lookahead window
+that's already being paid for.
+
 See [`docs/architecture.md`](architecture.md) for the full implementation-level
 breakdown (state machine details, real-time-safety notes, the `GateEngine`
 class this describes).
@@ -145,6 +168,56 @@ by (not a reproduction of) the "program dependent"/"AutoDynamic" release
 behaviour documented for hardware noise gates in this category - see
 `docs/design-brief.md`'s honesty section for the full sourcing and
 limitations.
+
+## Under the hood
+
+A few mechanisms worth knowing about if you want to understand why v0.4.0
+behaves the way it does, not just what the knobs are labelled:
+
+**Ratio is a real downward-expander law, and the default is the literal old
+code.** Below Threshold, Ratio applies (Ratio − 1) dB of attenuation for
+every dB the signal falls, measured to within 0.25 dB of that law at 2:1,
+4:1 and 8:1, with a knee that's continuous in both value and slope at both
+edges so widening Knee never introduces a corner. At the top of the range —
+∞:1, the default — the gain computer branches to the exact pre-v0.4.0 code
+path rather than to a very large-ratio approximation of it, so "unchanged by
+default" is a code-level fact, not a numerical coincidence.
+
+**Smooth Open shapes the opening with a moving-max plus two cascaded box
+filters**, all running in the dB domain, sized to fit entirely inside the
+current Lookahead window. A backward moving-max delays falls but not rises,
+so a rising edge passes through it instantly, and the box-filter cascade
+then spreads that edge linearly across the window — finishing exactly as the
+delayed transient leaves the lookahead delay line. Measured on a
+silence-to−6 dBFS burst at 0 ms Attack / 5 ms Lookahead: the steepest
+single-sample step drops from 59.5 dB/sample to 0.50 dB/sample (a 119×
+reduction), within 0.01% of the theoretical triangular-kernel peak, and the
+ramp is monotone throughout. It runs in series with the ballistic gain
+rather than as a parallel "whichever is more open" blend because that
+parallel version was tried and failed: at 0 ms Attack the raw step wins the
+max and the click it exists to remove survives untouched.
+
+**The Lookahead crossfade is real-time-safe by construction.** The 10 ms
+tap crossfade and the atomic hand-off to the message-thread poll (see
+[Reported latency](#reported-latency) above) were built specifically so that
+`processBlock()` never allocates — verified under a replaced allocator
+across guarded blocks that include the exact block where Lookahead moves.
+
+**Two detectors and two sidechain slopes run every block, whether selected
+or not.** The RMS detector (5 ms mean-square) and the 24 dB/oct sidechain
+filter chain are both always warm, so switching Detector or SC Slope is a
+crossfade between two live signals rather than a jump to a cold filter with
+its own settling transient. Measured rejection one octave below cutoff:
+12.30 dB at 12 dB/oct and 24.11 dB at 24 dB/oct, against a theoretical
+12.3/24.1.
+
+**Engineering hygiene:** 114 test cases and 9156 assertions run on macOS and
+Windows on every push, plus pluginval at strictness 10 and `auval -strict`.
+Zero heap allocations on the audio thread under a replaced allocator with
+every v0.4.0 feature engaged (including live Lookahead changes), renders
+independent of host block size to within 1e-6 RMS, and an open gate that
+still measures as a pure delay to better than −120 dBFS with every new stage
+switched on at once.
 
 ## External sidechain input
 
@@ -219,3 +292,37 @@ language, since they are not translated.
   default (0 dB Knee) sounds too aggressive/switchy on a sustained, dynamic
   performance, widen Knee to 6-12 dB for a smoother transition, then re-check
   that the noise floor between phrases is still adequately attenuated.
+
+## Known limitations (v0.4.0)
+
+- **No published CPU figure.** There is no CPU benchmark or CI performance
+  gate in this project, so treat any CPU-usage number you see elsewhere as
+  unverified — this manual doesn't claim one. Several detection paths (both
+  detectors, both sidechain slopes, the Smooth Open smoother) run
+  unconditionally every block, whether selected or not, specifically so that
+  switching between them is always a click-free crossfade rather than a jump
+  to a cold filter; that is a deliberate fixed cost, not an oversight.
+- **RMS isn't universally "steadier" than Peak.** On a sustained low tone
+  (around 70 Hz) the 5 ms RMS window doesn't smooth the mean-square ripple as
+  well as Peak's own release does, so Peak is actually the steadier detector
+  there. RMS's real advantage is high-crest-factor material — isolated
+  spikes (fret noise, a crackly DI) that carry almost no energy and shouldn't
+  open the gate.
+- **Smooth Open also shapes the closing edge**, not just the opening one: it
+  holds the open target for up to half the Lookahead time after the signal
+  falls away before the close ramp starts. Usually inaudible, occasionally
+  useful, but it's why the tightest, most surgical presets leave it off.
+- **The six new v0.4.0 parameters have no dedicated on-screen controls yet.**
+  They're fully host-automatable and appear in your host's generic parameter
+  view, but the custom photoreal editor (introduced in v0.3.0) wasn't
+  touched by this release — a screenshot of the current GUI shows the
+  v0.3.0 control set.
+- **Detection is stereo-linked by construction**, with no user-exposed
+  control over it: all channels are combined via `max(|channel|)` before
+  detection, and one gain is applied identically to every channel. There is
+  no stereo-link percentage, dual-mono mode, or M/S detection option.
+- **No oversampling.** The only nonlinearity in Silentium's signal path is a
+  multiplicative gain whose bandwidth is bounded by the ballistics, so
+  antiderivative anti-aliasing doesn't apply here — a deliberate design
+  decision, not something left off the roadmap.
+- **Pre-1.0, AGPLv3.** Breaking changes remain possible until v1.0.0.
