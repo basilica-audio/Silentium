@@ -6,6 +6,8 @@
 #include "dsp/GateEngine.h"
 #include "presets/PresetManager.h"
 
+#include <mutex>
+
 // Silentium: a tight lookahead noise gate with hysteresis, for silencing amp
 // hiss/hum between palm-muted chugs. Signal flow lives in GateEngine
 // (src/dsp) so it stays unit-testable independent of this AudioProcessor;
@@ -123,6 +125,29 @@ private:
     // host is notified promptly - with a hard real-time guarantee on the
     // producing side: the audio thread's entire contribution is one relaxed
     // atomic store inside GateEngine.
+    //
+    // CROSS-THREAD HARDENING (see tests/CrossThreadReprepareTests.cpp for the
+    // full writeup - this mirrors the fix shipped for the equivalent bug
+    // class in sibling plugins Nave, PR #28, and Triptych). Avoiding
+    // AsyncUpdater above closes the audio-thread-allocation hazard, but it
+    // does NOT close the underlying cross-thread hazard that bug class is
+    // really about: two unsynchronised entry points reaching
+    // message-thread-oriented host-notification state. timerCallback() is
+    // always the real JUCE message thread (juce::Timer's own contract), but
+    // prepareToPlay() is called by the host on WHATEVER thread it chooses -
+    // the VST3/AU contract guarantees only that it is not the audio thread,
+    // not that it is JUCE's message thread - and it ALSO calls
+    // AudioProcessor::setLatencySamples()/getLatencySamples() directly
+    // (see prepareToPlay()). Both of those touch a plain, non-atomic int
+    // inside juce::AudioProcessor with no internal synchronisation, so
+    // calling them concurrently from timerCallback() and a differently-
+    // threaded prepareToPlay() is a genuine data race on JUCE's own state -
+    // confirmed with ThreadSanitizer. latencyReportMutex below serialises
+    // exactly those two entry points; it is never taken by processBlock()
+    // (or anything it calls), so this adds no lock/allocation to the audio
+    // thread - the real-time guarantee above is unchanged.
+    std::mutex latencyReportMutex;
+
     void timerCallback() override;
 
     GateEngine engine;

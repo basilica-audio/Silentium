@@ -193,9 +193,23 @@ void SilentiumAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     // Lookahead is the only source of the plugin's reported latency; the
     // main signal path is delayed internally by GateEngine (see
-    // docs/architecture.md). Changing Lookahead live only takes effect on
-    // the next prepareToPlay() (see GateEngine::getLatencySamples()).
-    setLatencySamples (engine.getLatencySamples());
+    // docs/architecture.md). A live Lookahead change (v0.4.0 F6) is applied
+    // by GateEngine immediately, crossfaded, on the audio thread - this call
+    // just reports whatever GateEngine is applying right now (structural, at
+    // prepare time, or live) to the host; see timerCallback() for the
+    // equivalent live hand-off.
+    //
+    // latencyReportMutex: this call - and the AudioProcessor::
+    // getLatencySamples()/setLatencySamples() state it touches - can run
+    // concurrently with timerCallback()'s own use of the same JUCE state,
+    // since prepareToPlay() is called by the host on whatever thread it
+    // chooses while timerCallback() is always the real message thread. See
+    // the class-level comment on latencyReportMutex in PluginProcessor.h and
+    // tests/CrossThreadReprepareTests.cpp.
+    {
+        const std::lock_guard<std::mutex> lock (latencyReportMutex);
+        setLatencySamples (engine.getLatencySamples());
+    }
 }
 
 void SilentiumAudioProcessor::applyParametersToEngine()
@@ -328,8 +342,18 @@ void SilentiumAudioProcessor::timerCallback()
     // v0.4.0 F6. The engine moves its applied lookahead delay immediately
     // (crossfaded, on the audio thread) and publishes the new value; the host
     // must be told about it, but setLatencySamples()/updateHostDisplay() are
-    // message-thread-only. This is that hand-off, and it is the ONLY place
-    // the reported latency changes outside prepareToPlay().
+    // message-thread-only. This is that hand-off, and it is one of two places
+    // (the other is prepareToPlay()) the reported latency changes.
+    //
+    // latencyReportMutex (see PluginProcessor.h and
+    // tests/CrossThreadReprepareTests.cpp): this method is always the real
+    // JUCE message thread (juce::Timer's contract), but prepareToPlay() can
+    // run on a different, host-chosen thread and touches the exact same
+    // AudioProcessor::getLatencySamples()/setLatencySamples() state, which is
+    // not internally thread-safe - so the two are serialised here. Never
+    // taken by processBlock(), so no lock is added to the audio thread.
+    const std::lock_guard<std::mutex> lock (latencyReportMutex);
+
     const auto engineLatency = engine.getLatencySamples();
 
     if (engineLatency != getLatencySamples())
