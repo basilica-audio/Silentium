@@ -79,21 +79,18 @@ namespace basilica::gui
     };
 
     // A-01 fix (M3 a11y review, WCAG 2.4.7 Focus Visible): shared keyboard-
-    // focus indicator for the suite's filmstrip-rendered controls.
-    // FilmstripKnob::paint() and FilmstripToggle::paintButton() both fully
-    // override their base class's own paint path (see each header's docs),
-    // so neither ever reaches LookAndFeel_V4::drawRotarySlider/
-    // drawButtonBackground's own focus handling (JUCE 8.0.14) - this free
-    // function is the shared replacement, called directly at the end of each
-    // component's own paint() once `hasKeyboardFocus (true)` is true, so the
-    // fix lives in one place and is inherited by every sibling plugin that
-    // copies this component family rather than being re-discovered per
-    // plugin. Since v0.3.1 BasilicaLookAndFeel::drawButtonBackground() calls
-    // it too (the brass-image draw path replaces LookAndFeel_V4's own focus
-    // indication just like the filmstrip components do).
+    // focus indicator for the suite's custom-painted controls, called once
+    // `hasKeyboardFocus (true)` is true so the fix lives in one place and
+    // is inherited by every sibling plugin that copies this component
+    // family rather than being re-discovered per plugin. Current callers:
+    // BasilicaLookAndFeel::drawButtonBackground() (the brass-image draw
+    // path replaces LookAndFeel_V4's own focus indication, JUCE 8.0.14),
+    // BasilicaLookAndFeel::drawToggleButton() (V4 draws no toggle focus
+    // indication at all), and KnobSlider::paint() (the transparent knob
+    // hit-surfaces would otherwise have no visible focus indicator).
     //
-    // `shape` selects an elliptical ring for round controls (FilmstripKnob)
-    // or a rounded-rectangle ring for rectangular ones (FilmstripToggle,
+    // `shape` selects an elliptical ring for round controls (KnobSlider)
+    // or a rounded-rectangle ring for rectangular ones (toggles,
     // preset-bar buttons).
     enum class FocusRingShape
     {

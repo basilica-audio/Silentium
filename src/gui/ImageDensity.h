@@ -3,7 +3,7 @@
 #include <juce_graphics/juce_graphics.h>
 
 // Suite-reusable helper for the Basilica Audio GUI component family
-// (FilmstripKnob, FilmstripToggle, AnalogMeter): every pre-rendered Blender
+// (AnalogMeter, BasilicaLookAndFeel's brass button skin): every pre-rendered Blender
 // asset ships as two density tiers, @1x and @2x (see
 // .scaffold/gui-assets/*/README.md), and the editor uses STEPPED window
 // scaling (100/150/200%, see PluginEditor) rather than free resize - so the
