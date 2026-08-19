@@ -352,7 +352,7 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
     for (size_t i = 0; i < knobLayout.size(); ++i)
     {
         auto& entry = knobLayout[i];
-        knobs[i].slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag,
+        knobs[i].slider = std::make_unique<basilica::gui::KnobSlider> (juce::Slider::RotaryHorizontalVerticalDrag,
                                                            juce::Slider::NoTextBox);
         knobs[i].slider->setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colours::transparentBlack);
         knobs[i].slider->setColour (juce::Slider::rotarySliderFillColourId, juce::Colours::transparentBlack);

@@ -38,6 +38,13 @@ namespace basilica::gui
                               bool shouldDrawButtonAsHighlighted,
                               bool shouldDrawButtonAsDown) override;
 
+        // Issue #5 (keyboard a11y): restores a visible keyboard-focus ring
+        // for the editor's intentionally-invisible footer toggles - see the
+        // .cpp for why LookAndFeel_V4 alone would leave focus invisible.
+        void drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                                bool shouldDrawButtonAsHighlighted,
+                                bool shouldDrawButtonAsDown) override;
+
         // A-03 fix (M3 a11y review): the exact colour pair drawLabel() paints
         // the caption text over its opaque backing chip with, exposed so
         // tests/gui/BasilicaLookAndFeelContrastTests.cpp can compute the real

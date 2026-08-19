@@ -273,6 +273,24 @@ namespace basilica::gui
             paintFocusRing (g, boundsF, FocusRingShape::roundedRectangle);
     }
 
+    void BasilicaLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                                                 bool shouldDrawButtonAsHighlighted,
+                                                 bool shouldDrawButtonAsDown)
+    {
+        // The editor's footer toggles are deliberately invisible components
+        // (all tick/text colour IDs transparentBlack; the visible switch
+        // state is the editor paint()'s master-05/master-06 crop swap), and
+        // LookAndFeel_V4::drawToggleButton (JUCE 8.0.14) draws no focus
+        // indication of its own - so without this override, keyboard focus
+        // on a toggle would be completely invisible (WCAG 2.4.7 Focus
+        // Visible, issue #5). Same one-place pattern as the button/knob
+        // focus rings above.
+        juce::LookAndFeel_V4::drawToggleButton (g, button, shouldDrawButtonAsHighlighted, shouldDrawButtonAsDown);
+
+        if (button.hasKeyboardFocus (true))
+            paintFocusRing (g, button.getLocalBounds().toFloat(), FocusRingShape::roundedRectangle);
+    }
+
     void BasilicaLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
                                                bool shouldDrawButtonAsHighlighted,
                                                bool shouldDrawButtonAsDown)

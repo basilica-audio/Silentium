@@ -6,6 +6,7 @@
 
 #include "gui/AnalogMeter.h"
 #include "gui/BasilicaLookAndFeel.h"
+#include "gui/KnobSlider.h"
 #include "presets/PresetBar.h"
 
 class SilentiumAudioProcessor;
@@ -109,7 +110,11 @@ private:
 
     struct Knob
     {
-        std::unique_ptr<juce::Slider> slider;
+        // basilica::gui::KnobSlider rather than plain juce::Slider (issue
+        // #5): opts back into keyboard focus (juce::Slider ships focus-
+        // disabled in JUCE 8.0.14), adds WAI-ARIA-style key stepping and a
+        // visible focus ring - see gui/KnobSlider.h.
+        std::unique_ptr<basilica::gui::KnobSlider> slider;
         std::unique_ptr<SliderAttachment> attachment;
     };
 
