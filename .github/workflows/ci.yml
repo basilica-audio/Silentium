@@ -70,25 +70,48 @@ jobs:
       - name: Locate plugin artefacts
         id: artefacts
         shell: bash
+        env:
+          ARTEFACT_ROOT: build/Silentium_artefacts
+          # Must match the configuration the build steps above actually produce:
+          # -DCMAKE_BUILD_TYPE=Release on macOS, --config Release on Windows.
+          # JUCE emits artefacts into <target>_artefacts/<CONFIG>/ for both
+          # single- and multi-config generators.
+          BUILD_CONFIG: Release
         run: |
           set -euo pipefail
-          ARTEFACT_ROOT="build/Silentium_artefacts"
-          # JUCE's artefact path may or may not include a Release/ segment
-          # depending on whether the generator is single- or multi-config.
-          VST3_PATH=$(find "$ARTEFACT_ROOT" -type d -iname "*.vst3" | head -n 1)
-          if [ -z "$VST3_PATH" ]; then
-            echo "::error::No .vst3 artefact found under $ARTEFACT_ROOT"
+
+          CONFIG_ROOT="$ARTEFACT_ROOT/$BUILD_CONFIG"
+          if [ ! -d "$CONFIG_ROOT" ]; then
+            echo "::error::No $BUILD_CONFIG artefact directory at $CONFIG_ROOT"
+            echo "Contents of $ARTEFACT_ROOT:"
+            ls -la "$ARTEFACT_ROOT" || true
             exit 1
           fi
+
+          # Resolve exactly one artefact of the requested kind, scoped to the
+          # configuration that was built. The previous locator searched the whole
+          # artefact root and took `head -n 1`, which on Windows resolved the
+          # stale multi-config Debug/ bundle: pluginval then scanned a directory
+          # the plugin had never been built into. See basilica-audio/Nave#36.
+          find_artefact() {
+            local kind="$1"
+            local matches count
+            matches=$(find "$CONFIG_ROOT" -maxdepth 2 -type d -iname "*.$kind" | sort)
+            count=$(printf '%s' "$matches" | grep -c . || true)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::Expected exactly one .$kind artefact under $CONFIG_ROOT, found $count" >&2
+              printf '%s\n' "$matches" >&2
+              return 1
+            fi
+            printf '%s' "$matches"
+          }
+
+          VST3_PATH=$(find_artefact vst3)
           echo "vst3_path=$VST3_PATH" >> "$GITHUB_OUTPUT"
           echo "Found VST3 at: $VST3_PATH"
 
           if [ "$RUNNER_OS" = "macOS" ]; then
-            COMPONENT_PATH=$(find "$ARTEFACT_ROOT" -type d -iname "*.component" | head -n 1)
-            if [ -z "$COMPONENT_PATH" ]; then
-              echo "::error::No .component artefact found under $ARTEFACT_ROOT"
-              exit 1
-            fi
+            COMPONENT_PATH=$(find_artefact component)
             echo "component_path=$COMPONENT_PATH" >> "$GITHUB_OUTPUT"
             echo "Found AU component at: $COMPONENT_PATH"
           fi
@@ -108,6 +131,7 @@ jobs:
 
       - name: Download pluginval (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         env:
           PLUGINVAL_VERSION: v1.0.4
           PLUGINVAL_WINDOWS_SHA256: c08e61ce3b96db41636f8ec7e76f4c7e2c13ebdac7fa1b5a1f52b4f32ec715ab
@@ -121,26 +145,105 @@ jobs:
           }
           Expand-Archive -Path pluginval.zip -DestinationPath pluginval
 
+      - name: Install AU component (macOS)
+        id: install_au
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          COMPONENT_PATH: ${{ steps.artefacts.outputs.component_path }}
+        run: |
+          set -euo pipefail
+          # Installed before validation rather than after, because macOS only
+          # resolves an AU that is registered with the system: pluginval scans
+          # the component through AudioUnitPluginFormat, not by reading the
+          # bundle off disk.
+          COMPONENTS_DIR="$HOME/Library/Audio/Plug-Ins/Components"
+          COMPONENT_NAME=$(basename "$COMPONENT_PATH")
+          INSTALLED_PATH="${COMPONENTS_DIR:?}/${COMPONENT_NAME:?}"
+
+          mkdir -p "$COMPONENTS_DIR"
+          rm -rf "$INSTALLED_PATH"
+          cp -R "$COMPONENT_PATH" "$COMPONENTS_DIR/"
+          killall -9 AudioComponentRegistrar || true
+
+          echo "installed_component_path=$INSTALLED_PATH" >> "$GITHUB_OUTPUT"
+          echo "Installed AU component at: $INSTALLED_PATH"
+
       - name: Run pluginval (macOS)
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          VST3_PATH: ${{ steps.artefacts.outputs.vst3_path }}
+          COMPONENT_PATH: ${{ steps.install_au.outputs.installed_component_path }}
         run: |
-          "pluginval/pluginval.app/Contents/MacOS/pluginval" \
-            --strictness-level 10 \
-            --validate "${{ steps.artefacts.outputs.vst3_path }}"
+          set -euo pipefail
+          PLUGINVAL="pluginval/pluginval.app/Contents/MacOS/pluginval"
+          mkdir -p pluginval-logs
+
+          validate() {
+            local label="$1" target="$2"
+            local log="pluginval-logs/${label}.log"
+            local rc=0
+
+            echo "::group::pluginval (${label}): ${target}"
+            set +e
+            "$PLUGINVAL" --strictness-level 10 --validate "$target" 2>&1 | tee "$log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+
+            .github/scripts/assert-pluginval-passed.sh "$log" "$rc" "$label"
+          }
+
+          validate macos-vst3 "$VST3_PATH"
+          # The AU is a separately built binary. auval alone never put it through
+          # pluginval's strictness-10 sweep, so half the shipped macOS surface was
+          # unvalidated. See basilica-audio/Nave#36.
+          validate macos-au "$COMPONENT_PATH"
 
       - name: Run pluginval (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VST3_PATH: ${{ steps.artefacts.outputs.vst3_path }}
         run: |
-          & ".\pluginval\pluginval.exe" --strictness-level 10 --validate "${{ steps.artefacts.outputs.vst3_path }}"
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path pluginval-logs | Out-Null
+          $log = 'pluginval-logs/windows-vst3.log'
+          $errLog = 'pluginval-logs/windows-vst3.err.log'
+
+          # pluginval is built with juce_add_gui_app, so pluginval.exe is a
+          # Windows GUI-subsystem binary. PowerShell's call operator does not
+          # wait for GUI-subsystem processes and leaves $LASTEXITCODE unset,
+          # which is exactly how a run printing "Num plugins found: 0",
+          # "FAILURE" and "*** FAILED" still produced a green job
+          # (basilica-audio/Nave#36). Start-Process -Wait -PassThru waits on the
+          # process handle regardless of subsystem and yields a real ExitCode.
+          $proc = Start-Process -FilePath '.\pluginval\pluginval.exe' `
+            -ArgumentList @('--strictness-level', '10', '--validate', $env:VST3_PATH) `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError $errLog
+
+          if ((Test-Path $errLog) -and ((Get-Item $errLog).Length -gt 0)) {
+            Get-Content $errLog | Add-Content $log
+          }
+
+          Write-Host "::group::pluginval (windows-vst3): $env:VST3_PATH"
+          if (Test-Path $log) { Get-Content $log }
+          Write-Host "::endgroup::"
+
+          # A null ExitCode means we could not establish that it passed, which
+          # must be treated as a failure rather than assumed to be zero.
+          $code = if ($null -eq $proc.ExitCode) { 1 } else { $proc.ExitCode }
+
+          & bash .github/scripts/assert-pluginval-passed.sh $log $code 'windows-vst3'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: auval validation (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "${{ steps.artefacts.outputs.component_path }}" ~/Library/Audio/Plug-Ins/Components/
-          killall -9 AudioComponentRegistrar || true
+          set -euo pipefail
           auval -strict -v aufx Slnt Yvsv
 
       - name: Upload plugin artefacts
