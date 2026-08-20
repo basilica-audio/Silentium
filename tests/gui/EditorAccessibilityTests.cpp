@@ -336,7 +336,11 @@ TEST_CASE ("Aux switches expose title, checkable state, current-option descripti
 // Threshold) - this pins that Ratio, whose skewed range and ∞-display make
 // it the most idiosyncratic knob, is genuinely keyboard-operable and
 // reaches its gate detent via End.
-TEST_CASE ("Ratio knob is keyboard-steppable and End reaches the ∞:1 gate detent", "[gui][a11y]")
+// (Test name kept ASCII-only on purpose: catch_discover_tests passes the
+// name through CTest as a filter string, and the Windows runner's console
+// codepage mangles non-ASCII there - an "∞" in this name turned the CI
+// filter into a string matching no test at all, failing as "No tests ran".)
+TEST_CASE ("Ratio knob is keyboard-steppable and End reaches the infinity-to-one gate detent", "[gui][a11y]")
 {
     SilentiumAudioProcessor processor;
     processor.prepareToPlay (48000.0, 512);
