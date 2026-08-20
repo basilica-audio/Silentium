@@ -126,6 +126,52 @@ namespace
         ToggleLayoutEntry { ParamIDs::listen, "Listen", toggleX1x[1] },
     };
 
+    // Issue #33 (aux control bay): the v0.4.0 parameters, laid out in the
+    // JUCE-drawn expansion bay below the plate (see PluginEditorLayout.h's
+    // aux* docs for why they are not on the baked plate). Column order here
+    // IS the on-screen left-to-right order AND the keyboard focus order
+    // (creation order, same convention as knobLayout/toggleLayout above):
+    // the two expander knobs first, then the four switches.
+    struct AuxKnobLayoutEntry
+    {
+        const char* parameterId;
+        const char* labelText;
+    };
+
+    constexpr std::array<AuxKnobLayoutEntry, 2> auxKnobLayout {
+        AuxKnobLayoutEntry { ParamIDs::ratio, "Ratio" },
+        AuxKnobLayoutEntry { ParamIDs::hysteresis, "Hysteresis" },
+    };
+
+    // offOption/onOption are the two switch positions' names (off = choice
+    // index 0 / bool false, on = index 1 / true) - shown as the editor-drawn
+    // position legends (ON above the lever, OFF below, see paint()) and fed
+    // into each switch's accessibility description
+    // (FilmstripSwitch::setOptionLabels()). Text matches the parameter's
+    // own choice names in ParameterLayout.cpp verbatim, so the GUI, host
+    // generic view and screen reader all speak the same words.
+    struct AuxSwitchLayoutEntry
+    {
+        const char* parameterId;
+        const char* labelText;
+        const char* offOption;
+        const char* onOption;
+    };
+
+    constexpr std::array<AuxSwitchLayoutEntry, 4> auxSwitchLayout {
+        AuxSwitchLayoutEntry { ParamIDs::detector, "Detector", "Peak", "RMS" },
+        AuxSwitchLayoutEntry { ParamIDs::scSlope, "SC Slope", "12 dB/oct", "24 dB/oct" },
+        AuxSwitchLayoutEntry { ParamIDs::smoothOpen, "Smooth Open", "Off", "On" },
+        AuxSwitchLayoutEntry { ParamIDs::releaseShape, "Release Shape", "Exponential", "Linear" },
+    };
+
+    // The knob-brass-v2 filmstrip's own frame count and render sweep
+    // (matching the strip asset's -135..+135deg generation, see
+    // CMakeLists.txt's asset docs) - the rotary parameters are set to the
+    // same sweep so the drag maths and the drawn frame can never disagree.
+    constexpr int auxKnobStripFrames = 128;
+    constexpr float auxLegendFontHeight1x = 11.0f;
+
     // Vent-glow ballistics/flicker (mirrors AnalogMeter's own bulb-glow
     // technique, see Flicker.h) - deliberately slower (150ms tau) than the
     // meters' 300ms dial ballistics would suggest sped up, and a SUBTLE
@@ -389,6 +435,72 @@ SilentiumAudioProcessorEditor::SilentiumAudioProcessorEditor (SilentiumAudioProc
         configureToggle (toggles[i], entry.parameterId, entry.labelText);
     }
 
+    // Issue #33 aux control bay - created AFTER the footer toggles so the
+    // focus traversal continues in visual reading order (plate top to
+    // bottom, then the expansion bay left to right). The knob strip ships
+    // @1x only: its 160px native frame already exceeds the largest
+    // 200%-step draw size (96px), so ImageDensity's @2x tier would be 15MB
+    // of dead weight (see CMakeLists.txt's asset docs) - an invalid Image
+    // for that tier makes pickImageForWidth() fall back to @1x at every
+    // scale step by design.
+    const auto auxKnobStrip1x = loadImage (BinaryData::knob_brass_v2_strip_160px_128f_png,
+                                           BinaryData::knob_brass_v2_strip_160px_128f_pngSize);
+    const auto auxSwitchStrip1x = loadImage (BinaryData::toggle_brass_v2_strip_40px_4f_png,
+                                             BinaryData::toggle_brass_v2_strip_40px_4f_pngSize);
+    const auto auxSwitchStrip2x = loadImage (BinaryData::toggle_brass_v2_strip_80px_4f_png,
+                                             BinaryData::toggle_brass_v2_strip_80px_4f_pngSize);
+
+    for (size_t i = 0; i < auxKnobLayout.size(); ++i)
+    {
+        auto& entry = auxKnobLayout[i];
+        auxKnobs[i].slider = std::make_unique<basilica::gui::KnobSlider> (juce::Slider::RotaryHorizontalVerticalDrag,
+                                                                          juce::Slider::NoTextBox);
+        auxKnobs[i].slider->setFilmstrip (auxKnobStrip1x, juce::Image {}, auxKnobStripFrames);
+
+        // Match the strip's own -135..+135deg render sweep (irrelevant to
+        // the RotaryHorizontalVerticalDrag drag maths, which is linear, but
+        // keeps the declared rotary extent honest for anything - a11y, a
+        // future style change - that ever reads it).
+        auxKnobs[i].slider->setRotaryParameters (juce::MathConstants<float>::pi * 1.25f,
+                                                 juce::MathConstants<float>::pi * 2.75f,
+                                                 true);
+        configureKnob (auxKnobs[i], entry.parameterId, entry.labelText);
+    }
+
+    for (size_t i = 0; i < auxSwitchLayout.size(); ++i)
+    {
+        auto& entry = auxSwitchLayout[i];
+        auto& sw = auxSwitches[i];
+
+        sw.button = std::make_unique<basilica::gui::FilmstripSwitch> (juce::String(), auxSwitchStrip1x, auxSwitchStrip2x);
+        sw.button->setTitle (entry.labelText);
+        sw.button->setName (entry.labelText);
+        sw.button->onToggleVisualChange = [this] { repaint (auxLegendRepaintBounds); };
+        addAndMakeVisible (*sw.button);
+
+        sw.attachment = std::make_unique<ButtonAttachment> (audioProcessor.apvts, entry.parameterId, *sw.button);
+
+        // After the attachment, so the initial description reflects the
+        // attachment-synced state rather than a construction-time default.
+        sw.button->setOptionLabels (entry.offOption, entry.onOption);
+    }
+
+    for (size_t i = 0; i < auxCaptions.size(); ++i)
+    {
+        const auto* text = i < auxKnobLayout.size() ? auxKnobLayout[i].labelText
+                                                    : auxSwitchLayout[i - auxKnobLayout.size()].labelText;
+
+        auxCaptions[i] = std::make_unique<juce::Label> (juce::String(), text);
+        auxCaptions[i]->setJustificationType (juce::Justification::centred);
+        auxCaptions[i]->setInterceptsMouseClicks (false, false);
+
+        // Redundant with the adjacent control's own accessible title -
+        // excluded from the accessibility tree so screen-reader traversal
+        // doesn't announce every aux control twice.
+        auxCaptions[i]->setAccessible (false);
+        addAndMakeVisible (*auxCaptions[i]);
+    }
+
     setResizable (false, false);
 
     const auto storedStep = (int) audioProcessor.apvts.state.getProperty (uiScaleStepProperty, 0);
@@ -425,12 +537,18 @@ void SilentiumAudioProcessorEditor::configureKnob (Knob& knob, const juce::Strin
 
     if (auto* param = audioProcessor.apvts.getParameter (parameterId))
     {
-        // A-02 fix (M3 a11y review): every parameter declares its unit via
-        // .withLabel() in ParameterLayout.cpp (dB/ms/Hz) - feed that into
-        // both the popup value display and the accessibility value string.
+        // A-02 fix (M3 a11y review): every unit-carrying parameter declares
+        // it via .withLabel() in ParameterLayout.cpp (dB/ms/Hz) - feed that
+        // into both the popup value display and the accessibility value
+        // string. Ratio (issue #33) has no unit label - its
+        // stringFromValueFunction already renders the complete display text
+        // ("4.00 : 1" / "∞ : 1 (Gate)"), so skip the suffix rather than
+        // appending a stray trailing space.
         knob.slider->textFromValueFunction = [param] (double v)
         {
-            return param->getText (param->convertTo0to1 ((float) v), 0) + " " + param->getLabel();
+            const auto text = param->getText (param->convertTo0to1 ((float) v), 0);
+            const auto unit = param->getLabel();
+            return unit.isEmpty() ? text : text + " " + unit;
         };
         knob.slider->updateText();
     }
@@ -476,12 +594,19 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
     const auto s = [scale] (float v) { return v * scale; };
 
     // The top strip is an integrated dark header band (matching the
-    // near-black plate) with a thin warm gold rule under it.
+    // near-black plate) with a thin warm gold rule under it. Colours come
+    // from BasilicaLookAndFeel's panel accessors (issue #33) so this band,
+    // the aux bay below the plate (step 7) and the contrast test all share
+    // the exact same tones.
+    const auto panelTop = basilica::gui::BasilicaLookAndFeel::getPanelGradientTopColour();
+    const auto panelBottom = basilica::gui::BasilicaLookAndFeel::getPanelGradientBottomColour();
+    const auto panelRule = basilica::gui::BasilicaLookAndFeel::getPanelRuleColour();
+
     const auto stripHeight = (float) topStripHeight1x * scale;
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff17141a), 0.0f, 0.0f,
-                                             juce::Colour (0xff0b090d), 0.0f, stripHeight, false));
+    g.setGradientFill (juce::ColourGradient (panelTop, 0.0f, 0.0f,
+                                             panelBottom, 0.0f, stripHeight, false));
     g.fillRect (juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), stripHeight));
-    g.setColour (juce::Colour (0xff5a4420));
+    g.setColour (panelRule);
     g.fillRect (juce::Rectangle<float> (0.0f, stripHeight - 1.0f * scale, (float) getWidth(), 1.0f * scale));
 
     const auto plateOrigin = juce::Point<float> (0.0f, stripHeight + (float) topStripGap1x * scale);
@@ -679,6 +804,54 @@ void SilentiumAudioProcessorEditor::paint (juce::Graphics& g)
         }
     }
 
+    // 7. Aux control bay (issue #33): the JUCE-drawn expansion band below
+    // the plate hosting the v0.4.0 controls - framed exactly like the
+    // header strip (same panel gradient, thin gold rule on the plate-facing
+    // edge), with the four switches' position legends drawn as suite-serif
+    // gold text (the ON option's name above each lever, the OFF option's
+    // below; the ACTIVE option at full legend gold, the inactive one
+    // deliberately dimmed - the dim text is supplementary state indication,
+    // the accessible state/description on the switch itself is the
+    // canonical announcement, see FilmstripSwitch.h). The knobs/switches/
+    // caption labels themselves are child components and paint after this
+    // method returns; only the static band + legends live here.
+    {
+        const auto bayTop = plateBounds.getBottom() + s ((float) auxBayGap1x);
+        const auto bayHeight = s ((float) auxBayHeight1x);
+
+        g.setGradientFill (juce::ColourGradient (panelTop, 0.0f, bayTop,
+                                                 panelBottom, 0.0f, bayTop + bayHeight, false));
+        g.fillRect (juce::Rectangle<float> (0.0f, bayTop, (float) getWidth(), bayHeight));
+
+        g.setColour (panelRule);
+        g.fillRect (juce::Rectangle<float> (0.0f, bayTop, (float) getWidth(), 1.0f * scale));
+
+        g.setFont (basilica::gui::BasilicaLookAndFeel::getSerifFont (s (auxLegendFontHeight1x), true));
+
+        for (size_t i = 0; i < auxSwitches.size(); ++i)
+        {
+            if (auxSwitches[i].button == nullptr)
+                continue;
+
+            const auto columnX = s ((float) auxColumnX1x[i + (size_t) numAuxKnobs]);
+            const auto isOn = auxSwitches[i].button->getToggleState();
+
+            const auto drawLegend = [&] (const juce::String& text, int centreY1xInBay, bool active)
+            {
+                const auto legendRect = juce::Rectangle<float> (s ((float) auxLegendWidth1x),
+                                                                s ((float) auxLegendHeight1x + 4.0f))
+                                            .withCentre ({ columnX, bayTop + s ((float) centreY1xInBay) });
+
+                g.setColour (basilica::gui::BasilicaLookAndFeel::getLabelTextColour()
+                                 .withMultipliedAlpha (active ? 1.0f : 0.35f));
+                g.drawText (text, legendRect, juce::Justification::centred, false);
+            };
+
+            drawLegend (auxSwitches[i].button->getOptionLabel (true), auxLegendOnCentreY1x, isOn);
+            drawLegend (auxSwitches[i].button->getOptionLabel (false), auxLegendOffCentreY1x, ! isOn);
+        }
+    }
+
     // (VU needle/glow overlays are separate AnalogMeter child components,
     // drawn after this method returns - see resized() for their bounds.
     // Everything else - rose flourish, screws, the knob discs' own baked
@@ -780,6 +953,60 @@ void SilentiumAudioProcessorEditor::resized()
 
     for (size_t i = 0; i < knobDiscLayout.size(); ++i)
         knobDiscRepaintBounds[i] = toKnobDiscRect (knobDiscLayout[i]);
+
+    // Issue #33: aux control bay bounds - bay-local Y coordinates from
+    // PluginEditorLayout.h's aux* table, offset below the plate (same
+    // scale-then-offset convention as toPlatePoint() above).
+    const auto auxBayTopY = s (topStripHeight1x + topStripGap1x + plateHeight1x + auxBayGap1x);
+    const auto toAuxPoint = [&] (int x1x, int yInBay1x)
+    {
+        return juce::Point<int> (s (x1x), auxBayTopY + s (yInBay1x));
+    };
+
+    const auto auxKnobDiam = s (auxKnobDiameter1x);
+
+    for (size_t i = 0; i < auxKnobs.size(); ++i)
+        auxKnobs[i].slider->setBounds (juce::Rectangle<int> (auxKnobDiam, auxKnobDiam)
+                                           .withCentre (toAuxPoint (auxColumnX1x[i], auxControlCentreY1x)));
+
+    const auto auxSwitchPx = s (auxSwitchSize1x);
+
+    for (size_t i = 0; i < auxSwitches.size(); ++i)
+        auxSwitches[i].button->setBounds (juce::Rectangle<int> (auxSwitchPx, auxSwitchPx)
+                                              .withCentre (toAuxPoint (auxColumnX1x[i + (size_t) numAuxKnobs],
+                                                                       auxControlCentreY1x)));
+
+    for (size_t i = 0; i < auxCaptions.size(); ++i)
+    {
+        // The caption font must track the scale step - stored as a label
+        // property so BasilicaLookAndFeel::getLabelFont() renders exactly
+        // the height computed here (see that method's docs).
+        auxCaptions[i]->getProperties().set ("captionFontHeight", (double) (auxCaptionFontHeight1x * scale));
+        auxCaptions[i]->setBounds (juce::Rectangle<int> (s (auxCaptionWidth1x), s (auxCaptionHeight1x))
+                                       .withCentre (toAuxPoint (auxColumnX1x[i],
+                                                                auxCaptionTop1x + auxCaptionHeight1x / 2)));
+    }
+
+    // Legend repaint region: the union of both legend rows across all four
+    // switch columns, slightly expanded for AA margin - repainted from each
+    // switch's onToggleVisualChange hook rather than a full-plate repaint
+    // (same partial-repaint convention as every other dynamic region above).
+    auxLegendRepaintBounds = {};
+
+    for (size_t i = 0; i < auxSwitches.size(); ++i)
+    {
+        const auto columnX = auxColumnX1x[i + (size_t) numAuxKnobs];
+
+        for (const auto centreY : { auxLegendOnCentreY1x, auxLegendOffCentreY1x })
+        {
+            const auto rect = juce::Rectangle<int> (s (auxLegendWidth1x), s (auxLegendHeight1x + 4))
+                                  .withCentre (toAuxPoint (columnX, centreY));
+            auxLegendRepaintBounds = auxLegendRepaintBounds.isEmpty() ? rect
+                                                                      : auxLegendRepaintBounds.getUnion (rect);
+        }
+    }
+
+    auxLegendRepaintBounds = auxLegendRepaintBounds.expanded (s (2));
 }
 
 void SilentiumAudioProcessorEditor::updateVentGlowMix() noexcept

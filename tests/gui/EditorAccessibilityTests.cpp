@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "gui/FilmstripSwitch.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -79,6 +80,7 @@ TEST_CASE ("Knob accessibility value strings include their declared unit", "[gui
         { "Threshold", "dB" },
         { "Hold", "ms" },
         { "SC HPF", "Hz" },
+        { "Hysteresis", "dB" }, // issue #33: aux-bay knobs share the exact same wiring
     };
 
     for (const auto& expectation : expectations)
@@ -189,10 +191,12 @@ TEST_CASE ("Every interactive control is keyboard-focusable", "[gui][a11y]")
         }
     }
 
-    // All 9 knobs and both footer toggles must be present AND focusable -
-    // a zero-match loop must not pass vacuously.
-    CHECK (slidersSeen == 9);
-    CHECK (togglesSeen == 2);
+    // All 11 knobs (9 plate + Ratio/Hysteresis in the issue-#33 aux bay)
+    // and all 6 toggles (Duck/Listen on the plate + the 4 aux switches,
+    // which are juce::ToggleButton-derived FilmstripSwitch instances) must
+    // be present AND focusable - a zero-match loop must not pass vacuously.
+    CHECK (slidersSeen == 11);
+    CHECK (togglesSeen == 6);
 
     auto* scaleButton = editor.findChildWithID ("scaleButton");
     REQUIRE (scaleButton != nullptr);
@@ -260,4 +264,108 @@ TEST_CASE ("Ctrl/Cmd-modified arrow presses are left to the host", "[gui][a11y]"
     CHECK_FALSE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey,
                                                               juce::ModifierKeys::commandModifier, 0)));
     CHECK (knob->getValue() == Catch::Approx (-40.0));
+}
+
+// Issue #33 (aux control bay): the four switches carry the FULL a11y
+// contract from day one - parameter-named accessible title, checkable
+// state, a description announcing the CURRENT option by name (kept fresh
+// even for dontSendNotification state changes, see FilmstripSwitch.h's
+// buttonStateChanged() docs), keyboard focus, and a real APVTS wiring so a
+// state flip actually moves the parameter (never a decorative stub).
+TEST_CASE ("Aux switches expose title, checkable state, current-option description, and real APVTS wiring", "[gui][a11y]")
+{
+    SilentiumAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    SilentiumAudioProcessorEditor editor (processor);
+
+    struct Expectation
+    {
+        const char* title;
+        const char* parameterId;
+        const char* defaultOption; // choice index 0 / bool false - every v0.4.0 default is the neutral one
+        const char* flippedOption;
+    };
+
+    const Expectation expectations[] = {
+        { "Detector", "detector", "Peak", "RMS" },
+        { "SC Slope", "scSlope", "12 dB/oct", "24 dB/oct" },
+        { "Smooth Open", "smoothOpen", "Off", "On" },
+        { "Release Shape", "releaseShape", "Exponential", "Linear" },
+    };
+
+    for (const auto& expectation : expectations)
+    {
+        auto* toggle = findChildByTitle<basilica::gui::FilmstripSwitch> (editor, expectation.title);
+        REQUIRE (toggle != nullptr);
+        INFO ("aux switch \"" << expectation.title << "\"");
+
+        CHECK (toggle->getTitle() == expectation.title);
+        CHECK (toggle->getWantsKeyboardFocus());
+
+        const auto handler = createHandlerForTest (*toggle);
+        REQUIRE (handler != nullptr);
+        CHECK (handler->getCurrentState().isCheckable());
+
+        // Every v0.4.0 parameter defaults to its neutral value (choice
+        // index 0 / off) - the switch and its description must agree.
+        CHECK_FALSE (toggle->getToggleState());
+        CHECK (toggle->getDescription() == expectation.defaultOption);
+
+        // Flip via the toggle-state API (the same entry point mouse,
+        // Space/Return, and the APVTS attachment all funnel through):
+        // description follows, and the PARAMETER actually moves (choice
+        // index 1 / true == denormalised 1.0f for all four two-state
+        // parameters).
+        auto* raw = processor.apvts.getRawParameterValue (expectation.parameterId);
+        REQUIRE (raw != nullptr);
+        CHECK (raw->load() == Catch::Approx (0.0f));
+
+        toggle->setToggleState (true, juce::sendNotificationSync);
+        CHECK (toggle->getDescription() == expectation.flippedOption);
+        CHECK (raw->load() == Catch::Approx (1.0f));
+
+        // ...and the description stays fresh even for a notification-free
+        // programmatic set (preset load / test paths).
+        toggle->setToggleState (false, juce::dontSendNotification);
+        CHECK (toggle->getDescription() == expectation.defaultOption);
+    }
+}
+
+// Issue #33: the aux knobs are the same KnobSlider class as the plate knobs
+// (KeyboardSteps.h's WAI-ARIA stepping proven in detail above on
+// Threshold) - this pins that Ratio, whose skewed range and ∞-display make
+// it the most idiosyncratic knob, is genuinely keyboard-operable and
+// reaches its gate detent via End.
+TEST_CASE ("Ratio knob is keyboard-steppable and End reaches the ∞:1 gate detent", "[gui][a11y]")
+{
+    SilentiumAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+    SilentiumAudioProcessorEditor editor (processor);
+
+    auto* knob = findChildByTitle<juce::Slider> (editor, "Ratio");
+    REQUIRE (knob != nullptr);
+
+    juce::Component& knobAsComponent = *knob;
+
+    // Home = 1:1 (the expander-off floor).
+    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::homeKey)));
+    CHECK (knob->getValue() == Catch::Approx (1.0).margin (1.0e-4));
+
+    // A plain arrow step moves by a practical amount (1% of the
+    // proportional travel - nonzero, monotonic).
+    const auto before = knob->getValue();
+    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::rightKey)));
+    CHECK (knob->getValue() > before);
+
+    // End = the top of the range = the ∞:1 gate detent, and the accessible
+    // value string renders the gate wording (the same
+    // stringFromValueFunction the host and the value popup use).
+    REQUIRE (knobAsComponent.keyPressed (juce::KeyPress (juce::KeyPress::endKey)));
+    CHECK (knob->getValue() == Catch::Approx (20.0).margin (1.0e-4));
+
+    const auto handler = createHandlerForTest (*knob);
+    REQUIRE (handler != nullptr);
+    auto* valueInterface = handler->getValueInterface();
+    REQUIRE (valueInterface != nullptr);
+    CHECK (valueInterface->getCurrentValueAsString().contains ("Gate"));
 }

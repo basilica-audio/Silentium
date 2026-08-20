@@ -312,11 +312,15 @@ language, since they are not translated.
   holds the open target for up to half the Lookahead time after the signal
   falls away before the close ramp starts. Usually inaudible, occasionally
   useful, but it's why the tightest, most surgical presets leave it off.
-- **The six new v0.4.0 parameters have no dedicated on-screen controls yet.**
-  They're fully host-automatable and appear in your host's generic parameter
-  view, but the custom photoreal editor (introduced in v0.3.0) wasn't
-  touched by this release — a screenshot of the current GUI shows the
-  v0.3.0 control set.
+- **The six v0.4.0 parameters live in an expansion bay below the faceplate**
+  (added after v0.4.2 — earlier v0.4.x builds exposed them via host
+  automation and the generic parameter view only). Ratio and Hysteresis are
+  brass knobs; Detector, SC Slope, Smooth Open and Release Shape are
+  two-position switches whose active option is lit in gold next to the
+  lever. All six are keyboard-operable like every other control (Tab to
+  focus, arrows/Page/Home/End on knobs, Space/Return on switches). The
+  main faceplate itself is unchanged — its nine knobs and two toggles are
+  part of the approved v0.3.x artwork.
 - **Detection is stereo-linked by construction**, with no user-exposed
   control over it: all channels are combined via `max(|channel|)` before
   detection, and one gain is applied identically to every channel. There is

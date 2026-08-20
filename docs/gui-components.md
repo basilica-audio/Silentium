@@ -5,20 +5,33 @@ photoreal skeuomorphic editor, built from a small suite-reusable component
 family under `src/gui/`. This document is the "why" behind the code
 comments, for whoever ports this pattern to the next plugin.
 
-## Components (`src/gui/`)
+> **Historical note.** The sections below date from the v0.3.0 pilot and
+> its `faceplate-silentium-v1` asset generation. The v0.3.4 master-05
+> baseline architecture replaced the full component assembly with one baked
+> faceplate render (see `src/PluginEditorLayout.h`'s top-of-file docs), and
+> the parameter → control mapping now lives in `docs/gui-mapping.md`. The
+> pilot notes are kept for whoever ports the component family onward.
+
+## Components (`src/gui/`) — current state (v0.4.x)
 
 | Component | Base class | Backs onto |
 |---|---|---|
-| `FilmstripKnob` | `juce::Slider` (RotaryVerticalDrag) | `knob-brass-v1` 128-frame filmstrip |
-| `FilmstripToggle` | `juce::Button` | `toggle-brass-v1` 4-frame filmstrip |
-| `AnalogMeter` | `juce::Component` + `juce::Timer` | `vu-brass-v1` face/needle/glass |
-| `BasilicaLookAndFeel` | `juce::LookAndFeel_V4` | interim JUCE-drawn label styling |
-| `ImageDensity.h` | (free functions) | @1x/@2x tier selection shared by all three |
+| `KnobSlider` | `juce::Slider` | transparent hit-surface over baked plate art, or (issue #33 aux bay) `knob-brass-v2` 128-frame filmstrip via `setFilmstrip()`; WAI-ARIA keyboard steps (`KeyboardSteps.h`), Shift-fine drag, focus ring |
+| `FilmstripSwitch` | `juce::ToggleButton` | `toggle-brass-v2` 4-frame filmstrip; checkable a11y state + current-option description; issue #33 aux bay |
+| `AnalogMeter` | `juce::Component` + `juce::Timer` | baked master-05 dial faces + master-extracted needle sprite |
+| `BasilicaLookAndFeel` | `juce::LookAndFeel_V4` | JUCE-drawn label/button/panel styling (EB Garamond, contrast-tested colour pairs, shared focus ring) |
+| `ImageDensity.h` | (free functions) | @1x/@2x tier selection shared by all image-backed drawing |
 
-All four are Silentium-agnostic: they take asset `juce::Image`s and generic
+All are Silentium-agnostic: they take asset `juce::Image`s and generic
 config (frame counts, titles, tick tables) through their constructors, not
 Silentium's parameter IDs. `PluginEditor.cpp` is the only file that knows
-about Silentium's actual 9-knob/2-toggle/2-meter parameter set.
+about Silentium's actual parameter set (9 plate knobs + 2 plate toggles +
+2 meters, plus the issue-#33 aux bay's 2 knobs + 4 switches).
+
+The earlier pilot components this table used to list (`FilmstripKnob`,
+`FilmstripToggle`) went dead with the master-05 baseline and were removed
+in #37; their filmstrip frame maths returned as `KnobSlider`'s filmstrip
+mode and `FilmstripSwitch` for the aux bay (#33).
 
 ## Layout table
 

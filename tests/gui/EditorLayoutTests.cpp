@@ -138,6 +138,57 @@ TEST_CASE ("Toggle-row Y-alignment invariant: both toggles share the exact same 
     CHECK (toggleY1x > 0);
 }
 
+// Issue #33 (aux control bay): the v0.4.0 controls live in a JUCE-drawn
+// expansion bay below the plate - unlike every master-measured constant
+// above these are design values, but the same drift-guard idea applies:
+// PluginEditor.cpp lays the bay out from EXACTLY these constants, so the
+// invariants that keep controls, legends and captions from colliding are
+// asserted here against the same numbers.
+TEST_CASE ("Aux control bay: columns ordered, controls/legends/captions stacked without overlap, bay accounted for in the editor height", "[gui][layout]")
+{
+    using namespace slnt::layout;
+
+    // Six columns (2 knobs + 4 switches), strictly increasing left to
+    // right, each column's widest element (the caption chip's max width)
+    // fully inside the plate width.
+    CHECK (auxColumnX1x.size() == 6);
+    CHECK (auxKnobCount == 2);
+
+    for (size_t i = 1; i < auxColumnX1x.size(); ++i)
+        CHECK (auxColumnX1x[i] > auxColumnX1x[i - 1]);
+
+    for (const auto x : auxColumnX1x)
+    {
+        CHECK (x - auxCaptionWidth1x / 2 >= 0);
+        CHECK (x + auxCaptionWidth1x / 2 <= plateWidth1x);
+    }
+
+    // Adjacent caption boxes must not overlap (the backing chip only covers
+    // the fitted text, but the box is the worst case).
+    for (size_t i = 1; i < auxColumnX1x.size(); ++i)
+        CHECK (auxColumnX1x[i] - auxColumnX1x[i - 1] >= auxCaptionWidth1x);
+
+    // Vertical stack inside the bay, top to bottom: ON legend row, switch
+    // body, OFF legend row, caption row - with the knob (the taller control
+    // class) also clearing the caption row. All bay-local coordinates.
+    CHECK (auxLegendOnCentreY1x - auxLegendHeight1x / 2 >= 0);
+    CHECK (auxLegendOnCentreY1x + auxLegendHeight1x / 2 <= auxControlCentreY1x - auxSwitchSize1x / 2);
+    CHECK (auxLegendOffCentreY1x - auxLegendHeight1x / 2 >= auxControlCentreY1x + auxSwitchSize1x / 2);
+    CHECK (auxLegendOffCentreY1x + auxLegendHeight1x / 2 <= auxCaptionTop1x);
+    CHECK (auxControlCentreY1x + auxKnobDiameter1x / 2 <= auxCaptionTop1x);
+    CHECK (auxCaptionTop1x + auxCaptionHeight1x <= auxBayHeight1x);
+
+    // The knob hit-diameter matches the plate knobs' own (one shared feel),
+    // and the switch fits inside a knob column.
+    CHECK (auxKnobDiameter1x == knobDiameter1x);
+    CHECK (auxSwitchSize1x <= auxKnobDiameter1x);
+
+    // The editor's base height accounts for the whole bay (gap + band) -
+    // if someone resizes the bay without updating baseEditorHeight, the bay
+    // would be silently clipped off the bottom of the window.
+    CHECK (baseEditorHeight == topStripHeight1x + topStripGap1x + plateHeight1x + auxBayGap1x + auxBayHeight1x);
+}
+
 // Both VU meter dial centres MUST fall on the same horizontal line - a
 // mirrored-duplicate dial design (see PluginEditorLayout.h's docs) with an
 // asymmetric Y would look visibly wrong (one dial noticeably higher than

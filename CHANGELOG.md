@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **On-screen controls for the six v0.4.0 parameters** ([#33](https://github.com/basilica-audio/Silentium/issues/33)): an expansion bay below the faceplate — framed like the editor's header strip, populated from the suite's pre-existing brass component renders (no new Blender output; the approved master-05 faceplate art is untouched). Ratio and Hysteresis are 128-frame filmstrip knobs; Detector, SC Slope, Smooth Open and Release Shape are two-position filmstrip switches with gold position legends (the active option lit) and contrast-tested caption labels. Full mapping and rationale: `docs/gui-mapping.md`.
+- **Keyboard accessibility for the new controls from day one**: the aux knobs reuse `KnobSlider`'s WAI-ARIA stepping (#36) and gain a Shift-drag fine mouse mode (which the plate knobs inherit too); the switches expose a checkable state plus a description announcing the current option by name, kept fresh across notification-free state changes. New/extended tests: aux switch a11y + APVTS wiring, Ratio keyboard stepping to the ∞:1 detent, aux-bay layout invariants, a rendered state-change pixel proof, legend/panel WCAG contrast, and filmstrip frame maths (test suite: 124 → 131 cases).
+
 ## [0.4.2] - 2026-07-31
 
 Race-fix patch release.
