@@ -84,13 +84,35 @@ juce_add_binary_data(SilentiumBinaryData SOURCES
     # OUT OF SCOPE for the master-05 baseline revision (BasilicaLookAndFeel.{h,cpp}
     # is not in that revision's file whitelist) - kept embedded even though
     # an earlier draft of this revision's asset-removal list named them
-    # alongside the (genuinely unrelated) toggle_brass_v2_strip_* footer-
-    # toggle asset family; removing them would break BasilicaLookAndFeel.cpp's
+    # alongside the toggle_brass_v2_strip_* asset family (un-embedded by the
+    # master-05 baseline as then-unused, re-embedded below for issue #33's
+    # aux control bay); removing them would break BasilicaLookAndFeel.cpp's
     # compile.
     resources/gui/button_brass_v1_normal_40x28.png
     resources/gui/button_brass_v1_normal_80x56.png
     resources/gui/button_brass_v1_hover_40x28.png
     resources/gui/button_brass_v1_hover_80x56.png
+    # Issue #33 aux control bay: the v0.4.0 parameters live in a JUCE-drawn
+    # expansion bay below the plate (see src/PluginEditorLayout.h's aux*
+    # docs), populated from the suite's PRE-EXISTING brass component render
+    # family - no new Blender output:
+    #   - knob_brass_v2_strip_160px_128f.png: 128-frame rotary filmstrip
+    #     (-135..+135deg, frame 0 at the top), drawn by
+    #     src/gui/KnobSlider.h's filmstrip mode for Ratio/Hysteresis.
+    #     @1x tier ONLY, on purpose: the largest draw size any scale step
+    #     produces is 96px (48px @1x knob at the 200% window step), well
+    #     under this strip's own 160px native frame, so the @2x strip
+    #     (knob_brass_v2_strip_320px_128f.png, ~15MB) would be dead weight
+    #     in every binary - it stays on disk, unembedded, and
+    #     ImageDensity::pickImageForWidth() falls back to @1x by design.
+    #   - toggle_brass_v2_strip_{40px,80px}_4f.png: 4-frame switch strips
+    #     (off/on/off+hover/on+hover), both density tiers (the 34px @1x
+    #     switch draws at 68px at the 200% step, past the @1x strip's 40px
+    #     native frame), drawn by src/gui/FilmstripSwitch.h for
+    #     Detector/SC Slope/Smooth Open/Release Shape.
+    resources/gui/knob_brass_v2_strip_160px_128f.png
+    resources/gui/toggle_brass_v2_strip_40px_4f.png
+    resources/gui/toggle_brass_v2_strip_80px_4f.png
     # v0.3.4 MASTER-05 BASELINE ARCHITECTURE (this revision) - a full
     # replacement of the three prior "component composition" GUI attempts
     # (v0.3.1's bare JUCE-drawn background, v0.3.2's single-master

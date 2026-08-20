@@ -290,8 +290,55 @@ namespace slnt::layout
     constexpr int topStripGap1x = 6;
     constexpr int scaleButtonWidth1x = 64;
 
+    // ==========================================================================
+    // Aux control bay (issue #33): the v0.4.0 parameters (Ratio, Hysteresis,
+    // Detector, SC Slope, Smooth Open, Release Shape) postdate the approved
+    // master-05 render, whose baked knob bay has exactly 9 knobs + 2
+    // toggles. Rather than re-rendering the plate (issue #33's originally
+    // sketched path - deliberately not taken, so the Yves-approved master-05
+    // reference chain stays untouched), they live in a JUCE-drawn expansion
+    // bay BELOW the plate, framed exactly like the editor's existing header
+    // strip (BasilicaLookAndFeel::getPanelGradient*Colour(), thin gold rule
+    // on the plate-facing edge, same 6px gap rhythm) and populated from the
+    // suite's pre-rendered brass component family (knob-brass-v2 /
+    // toggle-brass-v2 filmstrips - EXISTING renders, re-embedded; no new
+    // Blender output of any kind). Unlike every master-derived constant
+    // above, these are design values chosen for this bay, not measurements
+    // of baked art - there is nothing baked to measure against.
+    //
+    // Column order (also the keyboard focus order, see PluginEditor.cpp's
+    // creation order): Ratio, Hysteresis (knobs - the expander pair), then
+    // Detector, SC Slope, Smooth Open, Release Shape (switches). All six
+    // columns are evenly spread across the plate width; Y values are
+    // bay-local (0 = the bay's own top edge, i.e. the gold rule).
+    constexpr int auxBayGap1x = 6;      // black gap between plate bottom and the bay's gold rule
+    constexpr int auxBayHeight1x = 112;
+
+    constexpr std::array<int, 6> auxColumnX1x { 75, 225, 375, 525, 675, 825 };
+    constexpr int auxKnobCount = 2; // first N columns are knobs, the rest switches
+
+    constexpr int auxKnobDiameter1x = 48;  // matches the plate knobs' own hit diameter
+    constexpr int auxSwitchSize1x = 34;
+    constexpr int auxControlCentreY1x = 46;
+
+    // Switch position legends (editor-drawn, BasilicaLookAndFeel serif):
+    // the ON option's name sits ABOVE the switch (lever up = on, matching
+    // the plate's own baked toggle convention), the OFF option's below.
+    constexpr int auxLegendOnCentreY1x = 18;
+    constexpr int auxLegendOffCentreY1x = 74;
+    constexpr int auxLegendWidth1x = 130;
+    constexpr int auxLegendHeight1x = 12;
+
+    // Caption labels (juce::Label, BasilicaLookAndFeel::drawLabel's
+    // contrast-guaranteed backing-chip styling), one per column.
+    constexpr int auxCaptionTop1x = 84;
+    constexpr int auxCaptionHeight1x = 20;
+    constexpr int auxCaptionWidth1x = 144;
+    constexpr float auxCaptionFontHeight1x = 15.0f; // scaled per step via the "captionFontHeight" label property
+
     constexpr int baseEditorWidth = plateWidth1x;
-    constexpr int baseEditorHeight = topStripHeight1x + topStripGap1x + plateHeight1x;
+    constexpr int baseEditorHeight = topStripHeight1x + topStripGap1x + plateHeight1x
+                                     + auxBayGap1x + auxBayHeight1x;
 
     constexpr std::array<float, 3> scaleSteps { 1.0f, 1.5f, 2.0f };
 }

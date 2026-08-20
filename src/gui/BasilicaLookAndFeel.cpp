@@ -33,6 +33,16 @@ namespace
     const juce::Colour focusRingGold { 0xffffd24c };
     const juce::Colour focusRingHalo { 0xcc000000 };
 
+    // Issue #33 (aux control bay): the editor's JUCE-drawn panel-band
+    // colours - gradient top/bottom and the warm gold rule - previously
+    // inline literals in PluginEditor.cpp's paint() (header strip only),
+    // now shared between the header strip and the aux bay via the
+    // accessors below so the contrast test can assert against the exact
+    // rendered tones.
+    const juce::Colour panelGradientTop { 0xff17141a };
+    const juce::Colour panelGradientBottom { 0xff0b090d };
+    const juce::Colour panelRule { 0xff5a4420 };
+
     // v0.3.1 preset-bar reskin: warm-gold lettering on the button's baked
     // near-black FACE panel (button-brass-v1 renders a recessed dark face
     // inside the brass rim SPECIFICALLY for this - measured on the rendered
@@ -119,7 +129,18 @@ namespace basilica::gui
 
     juce::Font BasilicaLookAndFeel::getLabelFont (juce::Label& label)
     {
-        juce::ignoreUnused (label);
+        // Issue #33: the aux control bay's caption labels must track the
+        // editor's stepped window scaling (100/150/200%) - a fixed 15px
+        // caption would visibly shrink relative to everything else at 200%.
+        // The editor stores the scaled height on the label as a
+        // "captionFontHeight" property from resized() (a property rather
+        // than a componentID branch, so the ONE number the editor computes
+        // is the same number rendered - no second scale calculation here);
+        // every label without the property (alert windows, file choosers)
+        // keeps the fixed suite caption size.
+        if (const auto* scaledHeight = label.getProperties().getVarPointer ("captionFontHeight"))
+            return getSerifFont ((float) static_cast<double> (*scaledHeight), true);
+
         return getSerifFont (15.0f, true);
     }
 
@@ -133,6 +154,9 @@ namespace basilica::gui
     juce::Colour BasilicaLookAndFeel::getLabelBackingChipColour() noexcept { return labelBackingChip; }
     juce::Colour BasilicaLookAndFeel::getButtonTextColour() noexcept { return buttonText; }
     juce::Colour BasilicaLookAndFeel::getButtonFaceBrightestColour() noexcept { return buttonFaceBrightest; }
+    juce::Colour BasilicaLookAndFeel::getPanelGradientTopColour() noexcept { return panelGradientTop; }
+    juce::Colour BasilicaLookAndFeel::getPanelGradientBottomColour() noexcept { return panelGradientBottom; }
+    juce::Colour BasilicaLookAndFeel::getPanelRuleColour() noexcept { return panelRule; }
 
     void BasilicaLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
     {

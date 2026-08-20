@@ -101,11 +101,21 @@ namespace
             { "Threshold", 0.30 }, { "Attack", 0.70 }, { "Hold", 0.15 },
             { "Release", 0.55 }, { "Range", 0.85 }, { "Lookahead", 0.40 },
             { "SC HPF", 0.60 }, { "SC LPF", 0.25 }, { "Knee", 0.75 },
+            // Issue #33 aux bay: varied non-rest values here DO visibly
+            // rotate the filmstrip knobs (unlike the plate knobs' baked
+            // artwork) - deliberately neither 0.5 nor an extreme.
+            { "Ratio", 0.40 }, { "Hysteresis", 0.65 },
         };
 
         for (const auto& kv : knobValues)
             if (auto* knob = findChildByTitle<juce::Slider> (editor, kv.label))
                 knob->setValue (knob->proportionOfLengthToValue (kv.normalisedValue), juce::dontSendNotification);
+
+        // Aux switches: one flipped ON (exercises the on-frame + the
+        // re-lit upper legend), the rest at their off defaults - so the
+        // committed preview shows both switch poses.
+        if (auto* detector = findChildByTitle<juce::ToggleButton> (editor, "Detector"))
+            detector->setToggleState (true, juce::dontSendNotification);
     }
 }
 
@@ -277,6 +287,101 @@ TEST_CASE ("Rotating knob discs visibly rotate at distinctly non-centre values (
     else
     {
         FAIL ("could not open output stream for knob-rotation-zoom.png");
+    }
+}
+
+// Issue #33 (aux control bay) visual-wiring proof: the aux controls must
+// RENDER their state, not just hold it - a filmstrip knob at a different
+// value draws a different frame, and flipping a switch both changes the
+// lever frame AND re-lights the position legends the editor draws around
+// it. Counted as changed pixels between two real editor snapshots, same
+// technique as the knob-disc rotation proof above - a decorative stub
+// (control present but not painting its state) fails this immediately.
+TEST_CASE ("Aux-bay knob and switch visibly render their state changes", "[gui]")
+{
+    SilentiumAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    SilentiumAudioProcessorEditor editor (processor);
+    REQUIRE (editor.getWidth() > 0);
+    REQUIRE (editor.getHeight() > 0);
+
+    auto* ratio = findChildByTitle<juce::Slider> (editor, "Ratio");
+    auto* detector = findChildByTitle<juce::ToggleButton> (editor, "Detector");
+    REQUIRE (ratio != nullptr);
+    REQUIRE (detector != nullptr);
+
+    const auto before = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f, juce::SoftwareImageType {});
+    REQUIRE (before.isValid());
+
+    // Ratio: default is the top of the range (the ∞:1 gate detent) - move
+    // to the far opposite extreme for the largest frame distance.
+    ratio->setValue (ratio->proportionOfLengthToValue (0.05), juce::dontSendNotification);
+    detector->setToggleState (true, juce::dontSendNotification);
+
+    const auto after = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f, juce::SoftwareImageType {});
+    REQUIRE (after.isValid());
+    REQUIRE (after.getWidth() == before.getWidth());
+    REQUIRE (after.getHeight() == before.getHeight());
+
+    const auto countChangedPixels = [&] (juce::Rectangle<int> region)
+    {
+        int changed = 0;
+
+        for (int y = region.getY(); y < region.getBottom(); ++y)
+        {
+            for (int x = region.getX(); x < region.getRight(); ++x)
+            {
+                const auto a = before.getPixelAt (x, y);
+                const auto b = after.getPixelAt (x, y);
+                const auto diff = std::abs (a.getRed() - b.getRed()) + std::abs (a.getGreen() - b.getGreen())
+                                 + std::abs (a.getBlue() - b.getBlue());
+                if (diff > 24)
+                    ++changed;
+            }
+        }
+
+        return changed;
+    };
+
+    // Knob: a meaningfully large fraction of the knob's own bounds must
+    // have moved (the pointer notch swept ~250deg of the strip).
+    {
+        const auto region = ratio->getBounds();
+        const auto changed = countChangedPixels (region);
+        INFO ("Ratio knob: " << changed << "/" << region.getWidth() * region.getHeight() << " px changed");
+        CHECK (changed > region.getWidth() * region.getHeight() / 20);
+    }
+
+    // Switch: the lever frame flipped.
+    {
+        const auto region = detector->getBounds();
+        const auto changed = countChangedPixels (region);
+        INFO ("Detector switch: " << changed << "/" << region.getWidth() * region.getHeight() << " px changed");
+        CHECK (changed > 0);
+    }
+
+    // Legends: the active option moved from "Peak" (below) to "RMS"
+    // (above) - both legend rows around the Detector column re-lit.
+    // Derived from the same layout constants PluginEditor.cpp's paint()
+    // draws with, at the editor's default 100% scale step.
+    {
+        using namespace slnt::layout;
+
+        constexpr auto bayTopY = topStripHeight1x + topStripGap1x + plateHeight1x + auxBayGap1x;
+        constexpr auto detectorColumnX = auxColumnX1x[(size_t) auxKnobCount]; // first switch column
+
+        const auto legendRow = [&] (int centreY1x)
+        {
+            return juce::Rectangle<int> (auxLegendWidth1x, auxLegendHeight1x + 4)
+                       .withCentre ({ detectorColumnX, bayTopY + centreY1x });
+        };
+
+        const auto changedOn = countChangedPixels (legendRow (auxLegendOnCentreY1x));
+        const auto changedOff = countChangedPixels (legendRow (auxLegendOffCentreY1x));
+        INFO ("legend px changed: on-row " << changedOn << ", off-row " << changedOff);
+        CHECK (changedOn > 0);
+        CHECK (changedOff > 0);
     }
 }
 

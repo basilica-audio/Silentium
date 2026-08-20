@@ -6,6 +6,7 @@
 
 #include "gui/AnalogMeter.h"
 #include "gui/BasilicaLookAndFeel.h"
+#include "gui/FilmstripSwitch.h"
 #include "gui/KnobSlider.h"
 #include "presets/PresetBar.h"
 
@@ -124,6 +125,17 @@ private:
         std::unique_ptr<ButtonAttachment> attachment;
     };
 
+    // Issue #33 (aux control bay): a switch bound to a two-state parameter -
+    // either an AudioParameterBool (Smooth Open) or a two-entry
+    // AudioParameterChoice (Detector, SC Slope, Release Shape; toggle state
+    // maps exactly onto choice index 0/1 through the same ButtonAttachment,
+    // see FilmstripSwitch.h's docs).
+    struct AuxSwitch
+    {
+        std::unique_ptr<basilica::gui::FilmstripSwitch> button;
+        std::unique_ptr<ButtonAttachment> attachment;
+    };
+
     void configureKnob (Knob& knob, const juce::String& parameterId, const juce::String& labelText);
     void configureToggle (Toggle& toggle, const juce::String& parameterId, const juce::String& labelText);
     void applyScaleStep (int newStepIndex);
@@ -212,6 +224,27 @@ private:
     // top-of-file docs).
     static constexpr int numToggles = 2;
     std::array<Toggle, numToggles> toggles;
+
+    // Issue #33: aux control bay below the plate, hosting the v0.4.0
+    // parameters the baked master-05 knob bay has no positions for - two
+    // filmstrip knobs (Ratio, Hysteresis) and four filmstrip switches
+    // (Detector, SC Slope, Smooth Open, Release Shape), each with a
+    // caption juce::Label (BasilicaLookAndFeel's contrast-guaranteed
+    // backing-chip styling; excluded from the accessibility tree since the
+    // controls carry the same names as their own accessible titles). The
+    // switches' position legends (option names above/below each lever) are
+    // drawn by this editor's paint() - auxLegendRepaintBounds is the union
+    // of the legend rows, repainted from each switch's
+    // onToggleVisualChange hook (see FilmstripSwitch.h) so a state flip
+    // re-lights the active option without a full-plate repaint.
+    static constexpr int numAuxKnobs = 2;
+    static constexpr int numAuxSwitches = 4;
+    static constexpr int numAuxControls = numAuxKnobs + numAuxSwitches;
+
+    std::array<Knob, numAuxKnobs> auxKnobs;
+    std::array<AuxSwitch, numAuxSwitches> auxSwitches;
+    std::array<std::unique_ptr<juce::Label>, numAuxControls> auxCaptions;
+    juce::Rectangle<int> auxLegendRepaintBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SilentiumAudioProcessorEditor)
 };

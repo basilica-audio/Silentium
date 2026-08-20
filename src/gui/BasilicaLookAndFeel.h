@@ -72,6 +72,19 @@ namespace basilica::gui
         // direct text drawing.
         static juce::Font getSerifFont (float height, bool semiBold = false);
 
+        // Issue #33 (aux control bay): the JUCE-drawn panel-band styling the
+        // editor uses for its integrated header strip AND the aux control
+        // bay below the plate - a vertical near-black gradient with a thin
+        // warm gold rule at the plate-facing edge. Exposed as accessors
+        // (same drift-proofing rationale as getLabelTextColour() above) so
+        // tests/gui/BasilicaLookAndFeelContrastTests.cpp can assert the
+        // legend text drawn over this band clears WCAG 1.4.3 against the
+        // band's BRIGHTEST tone (the gradient top - the worst case for
+        // light-on-dark text).
+        static juce::Colour getPanelGradientTopColour() noexcept;
+        static juce::Colour getPanelGradientBottomColour() noexcept;
+        static juce::Colour getPanelRuleColour() noexcept;
+
     private:
         juce::Image buttonNormal1x, buttonNormal2x, buttonHover1x, buttonHover2x;
 

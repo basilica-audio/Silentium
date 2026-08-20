@@ -104,3 +104,28 @@ TEST_CASE ("Preset-bar button text clears WCAG AA 4.5:1 against the button face'
     CHECK (contrastRatio (textColour, faceBrightest) >= 4.5);
     CHECK (faceBrightest.isOpaque());
 }
+
+TEST_CASE ("Aux-bay legend text clears WCAG AA 4.5:1 against the panel band's brightest tone", "[gui][a11y]")
+{
+    using basilica::gui::BasilicaLookAndFeel;
+
+    // Issue #33: the switch position legends (the ACTIVE option's name, at
+    // full alpha) are drawn in getLabelTextColour() gold directly over the
+    // aux bay's panel gradient - no backing chip, so the guarantee is
+    // against the band itself. The gradient TOP is the brightest tone the
+    // band ever shows (light-on-dark worst case); the colour pair comes
+    // from the SAME accessors PluginEditor.cpp's paint() renders with. (The
+    // INACTIVE option's dimmed legend is deliberately below this bar: it is
+    // supplementary state decoration, and the canonical announcement is the
+    // switch's own accessible checked-state + current-option description -
+    // see FilmstripSwitch.h.)
+    const auto legendColour = BasilicaLookAndFeel::getLabelTextColour();
+    const auto panelBrightest = BasilicaLookAndFeel::getPanelGradientTopColour();
+
+    INFO ("legend colour = " << legendColour.toDisplayString (true).toStdString());
+    INFO ("panel brightest tone = " << panelBrightest.toDisplayString (true).toStdString());
+
+    CHECK (contrastRatio (legendColour, panelBrightest) >= 4.5);
+    CHECK (panelBrightest.isOpaque());
+    CHECK (BasilicaLookAndFeel::getPanelGradientBottomColour().isOpaque());
+}
