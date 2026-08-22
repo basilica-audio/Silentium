@@ -16,10 +16,16 @@ jobs:
   build-and-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            timeout: 35
+          - os: windows-latest
+            timeout: 35
 
     steps:
       - name: Checkout
@@ -170,6 +176,7 @@ jobs:
           echo "Installed AU component at: $INSTALLED_PATH"
 
       - name: Run pluginval (macOS)
+        timeout-minutes: 10
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -202,6 +209,7 @@ jobs:
           validate macos-au "$COMPONENT_PATH"
 
       - name: Run pluginval (Windows)
+        timeout-minutes: 10
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -240,6 +248,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: auval validation (macOS)
+        timeout-minutes: 5
         if: runner.os == 'macOS'
         shell: bash
         run: |
