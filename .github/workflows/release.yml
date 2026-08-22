@@ -21,6 +21,7 @@ jobs:
   create-release:
     name: Create release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Create the GitHub release for this tag (idempotent)
         # Both release-macos and release-windows upload assets via
@@ -42,14 +43,15 @@ jobs:
     name: Signed macOS release
     needs: create-release
     runs-on: macos-14
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set CPM source cache path
         run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
 
       - name: Cache CPM dependencies
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/CPM
           key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
@@ -82,6 +84,7 @@ jobs:
           echo "KEYCHAIN=$KC" >> "$GITHUB_ENV"
 
       - name: Sign, notarize, staple, package
+        timeout-minutes: 40
         env:
           API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -124,13 +127,14 @@ jobs:
     name: Windows release (unsigned)
     needs: create-release
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set CPM source cache path
         shell: bash
         run: echo "CPM_SOURCE_CACHE=$HOME/.cache/CPM" >> "$GITHUB_ENV"
       - name: Cache CPM dependencies
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/CPM
           key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
