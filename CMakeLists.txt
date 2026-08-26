@@ -253,6 +253,13 @@ target_compile_definitions(SharedCode INTERFACE
     JUCE_VST3_CAN_REPLACE_VST2=0
     # AGPLv3 usage permits disabling the splash screen.
     JUCE_DISPLAY_SPLASH_SCREEN=0
+    # processBlock() holds a juce::ScopedNoDenormals, which forces FTZ/DAZ for
+    # the whole audio callback, so juce_dsp's per-block snap-to-zero passes are
+    # redundant work on the audio thread. juce_dsp.h (JUCE 8.0.14) documents
+    # disabling the flag as safe exactly in this case. It also keeps denormal
+    # tail tests honest: the library no longer masks a missing FTZ path.
+    # Fleet decision: basilica-audio/Crypta#99.
+    JUCE_DSP_ENABLE_SNAP_TO_ZERO=0
 )
 
 # Add any extra juce:: modules a specific plugin needs (e.g. juce_audio_formats
