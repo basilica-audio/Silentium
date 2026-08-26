@@ -23,7 +23,7 @@ jobs:
         os: [macos-latest, windows-latest]
         include:
           - os: macos-latest
-            timeout: 35
+            timeout: 45
           - os: windows-latest
             timeout: 35
 
@@ -122,6 +122,34 @@ jobs:
             echo "Found AU component at: $COMPONENT_PATH"
           fi
 
+      - name: Assert Universal Binary slices (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VST3_PATH: ${{ steps.artefacts.outputs.vst3_path }}
+          COMPONENT_PATH: ${{ steps.artefacts.outputs.component_path }}
+        run: |
+          set -euo pipefail
+          # The macOS configure step requests arm64;x86_64. Assert both slices
+          # actually exist before validating them: pluginval and auval load
+          # whichever slice matches the host process, so a toolchain that
+          # silently dropped a slice would still pass every later step.
+          # See basilica-audio/Crypta#108.
+          assert_universal() {
+            local bundle="$1" bin archs
+            bin=$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+            archs=$(lipo -archs "$bin")
+            echo "$bin: $archs"
+            for wanted in arm64 x86_64; do
+              if ! grep -qw "$wanted" <<< "$archs"; then
+                echo "::error::$bin is missing the $wanted slice (found: $archs)"
+                exit 1
+              fi
+            done
+          }
+          assert_universal "$VST3_PATH"
+          assert_universal "$COMPONENT_PATH"
+
       - name: Download pluginval (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -176,7 +204,7 @@ jobs:
           echo "Installed AU component at: $INSTALLED_PATH"
 
       - name: Run pluginval (macOS)
-        timeout-minutes: 10
+        timeout-minutes: 20
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -189,12 +217,15 @@ jobs:
 
           validate() {
             local label="$1" target="$2"
+            # Optional third argument: a launcher such as "arch -x86_64". It is
+            # expanded unquoted on purpose so it word-splits into a command.
+            local launcher="${3:-}"
             local log="pluginval-logs/${label}.log"
             local rc=0
 
             echo "::group::pluginval (${label}): ${target}"
             set +e
-            "$PLUGINVAL" --strictness-level 10 --validate "$target" 2>&1 | tee "$log"
+            $launcher "$PLUGINVAL" --strictness-level 10 --validate "$target" 2>&1 | tee "$log"
             rc=${PIPESTATUS[0]}
             set -e
             echo "::endgroup::"
@@ -202,11 +233,18 @@ jobs:
             .github/scripts/assert-pluginval-passed.sh "$log" "$rc" "$label"
           }
 
-          validate macos-vst3 "$VST3_PATH"
+          validate macos-vst3-arm64 "$VST3_PATH"
           # The AU is a separately built binary. auval alone never put it through
           # pluginval's strictness-10 sweep, so half the shipped macOS surface was
           # unvalidated. See basilica-audio/Nave#36.
-          validate macos-au "$COMPONENT_PATH"
+          validate macos-au-arm64 "$COMPONENT_PATH"
+          # pluginval loads only the slice that matches its own host process, so
+          # the native runs above exercised nothing but arm64: the x86_64 half
+          # of the Universal Binary would ship unvalidated. Repeat the sweep
+          # under Rosetta 2 (pluginval's release binary is itself universal).
+          # See basilica-audio/Crypta#108.
+          validate macos-vst3-x86_64 "$VST3_PATH" "arch -x86_64"
+          validate macos-au-x86_64 "$COMPONENT_PATH" "arch -x86_64"
 
       - name: Run pluginval (Windows)
         timeout-minutes: 10
@@ -248,12 +286,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: auval validation (macOS)
-        timeout-minutes: 5
+        timeout-minutes: 10
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           auval -strict -v aufx Slnt Yvsv
+          # auval validates only its own architecture, and the native run above
+          # covered the arm64 slice alone. Rosetta 2 puts the x86_64 slice through
+          # the same strict pass. See basilica-audio/Crypta#108.
+          arch -x86_64 auval -strict -v aufx Slnt Yvsv
 
       - name: Upload plugin artefacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
