@@ -7,14 +7,14 @@
 [![CI](https://github.com/basilica-audio/silentium/actions/workflows/ci.yml/badge.svg)](https://github.com/basilica-audio/silentium/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-> **Work in progress.** Silentium is pre-1.0 and under active development. Binaries for macOS and Windows are available from the [Releases](../../releases) page (currently unsigned — see the release notes); building from source works too. Expect breaking changes until v1.0.0 ships (see [Roadmap](#roadmap)).
+> **Work in progress.** Silentium is pre-1.0 and under active development. Binaries for macOS and Windows are available from the [Releases](../../releases) page (macOS builds are signed with a Developer ID certificate, notarized and stapled); building from source works too. Expect breaking changes until v1.0.0 ships (see [Roadmap](#roadmap)).
 
 <!-- ==BEGIN BODY== (plugin engineer: replace this block with What it is / Features / Signal flow / Roadmap) -->
 ## What it is
 
 Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp hiss/hum in the silence between palm-muted chugs: it detects transients on a sidechain-filtered copy of the input (so hum/rumble can't falsely hold it open), opens fast with a lookahead head start so it never clips the leading edge of a pick attack, and uses two separate open/close thresholds so a signal hovering near the threshold can't chatter the gate open and closed.
 
-## Features (v0.2.0 scope)
+## Features
 
 - **Threshold** - open threshold on the (sidechain-filtered) envelope, -80 dB to 0 dB (default -40 dB)
 - **Hysteresis** - the gate's close threshold sits a fixed 3 dB below Threshold, so it can never chatter on a signal hovering near one value
@@ -29,7 +29,7 @@ Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp
 - **Duck** - inverts the gain computer into a ducker (attenuate above Threshold instead of opening above it), off by default
 - **Listen** - routes the sidechain-filtered detection signal to the output for auditioning what the gate hears, off by default
 - **External sidechain input** - an optional second input bus (disabled by default) lets the detection path be keyed from another track instead of the main input
-- **Presets** *(v0.2.0)* - nine factory presets plus full user preset save/load/import/export, with a German-localised preset bar frame (falls back to English)
+- **Presets** *(v0.2.0)* - ten factory presets plus full user preset save/load/import/export, with a German-localised preset bar frame (falls back to English)
 - Full state save/recall via `AudioProcessorValueTreeState`, tolerant of older (v0.1.0) sessions
 
 ## Signal flow
@@ -57,9 +57,16 @@ See [`docs/architecture.md`](docs/architecture.md) for the full breakdown, inclu
 | M4 | Release engineering - signing, notarization, installers, v1.0.0 | Planned |
 <!-- ==END BODY== -->
 
+## Documentation
+
+- [`docs/manual.md`](docs/manual.md) — the user manual: what every control does, and how to use it
+- [`docs/presets.md`](docs/presets.md) — what each factory preset is for
+- [`CHANGELOG.md`](CHANGELOG.md) — what shipped in each release
+- [Silentium on basilica-audio.github.io](https://basilica-audio.github.io/website/silentium/) — the product page (English and German)
+
 ## Installation
 
-No pre-built binaries are published yet (see the work-in-progress notice above). Once releases begin, installation will follow the standard plugin locations:
+Download the archive for your platform from the [Releases](../../releases) page and copy the bundles into the standard plugin locations:
 
 **macOS**
 

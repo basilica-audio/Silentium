@@ -1,6 +1,6 @@
 # Factory presets
 
-Ten factory presets ship with Silentium v0.4.0, embedded via BinaryData from
+Ten factory presets ship with Silentium, embedded via BinaryData from
 `presets/factory/*.json`. All are sourced from `docs/design-brief.md`'s
 "Factory Presets" section - see that document's own Honesty section for what
 these numbers are and aren't calibrated against (research/manual/forum-
