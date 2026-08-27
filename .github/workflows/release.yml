@@ -23,21 +23,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Create the GitHub release for this tag (idempotent)
-        # Both release-macos and release-windows upload assets via
-        # `gh release upload`, which requires the release object to already
-        # exist for the tag - neither job created it, so both failed with
-        # "release not found" on a fresh tag push. `gh release view` first
-        # makes re-runs (e.g. after a transient build failure) idempotent
-        # instead of erroring on an already-created release.
-        run: |
-          set -euo pipefail
-          if ! gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" \
-              --title "$GITHUB_REF_NAME" --generate-notes
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Creates the release for this tag - both platform jobs upload into it
+      # with `gh release upload`, which needs the release object to exist first -
+      # and gives it a body built from this repository's own CHANGELOG section
+      # for the tag, plus the suite-wide signing/install footer. The asset table
+      # is deliberately left out here: nothing has been uploaded yet. The
+      # publish-release-notes job below fills it in once the archives exist.
+      #
+      # The action lives in basilica-audio/.github so the footer's wording is in
+      # one place rather than thirteen. A tag with no matching CHANGELOG section
+      # fails here, before anything is built or uploaded - fix the changelog and
+      # re-tag rather than cleaning up a half-published release.
+      - name: Create the release with notes from CHANGELOG.md
+        uses: basilica-audio/.github/release-notes@main
+        with:
+          tag: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          include-assets: 'false'
 
   release-macos:
     name: Signed macOS release
@@ -256,3 +260,24 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" "$SLUG-$GITHUB_REF_NAME-windows.zip" --clobber -R "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  publish-release-notes:
+    name: Publish release notes
+    needs: [release-macos, release-windows]
+    # always(): a platform build that failed should still leave a readable
+    # release page describing what did get attached, rather than a body frozen
+    # before any asset existed.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Same body as above, now with a Downloads table rendered from the assets
+      # actually attached to the release.
+      - name: Rewrite the release body with the attached assets
+        uses: basilica-audio/.github/release-notes@main
+        with:
+          tag: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          include-assets: 'true'

@@ -67,6 +67,11 @@ namespace basilica::presets
                                          parsed });
         }
 
+        // Adopt anything still sitting in the pre-rename manufacturer folder
+        // before the first getAllPresets()/applyStartupDefault() can look, so a
+        // user's own "Default" survives the rename on the very first launch.
+        migrateLegacyUserPresets();
+
         for (auto* parameter : apvts.processor.getParameters())
             if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
                 apvts.addParameterListener (ranged->paramID, this);
@@ -198,32 +203,104 @@ namespace basilica::presets
     }
 
     //==========================================================================
-    juce::File PresetManager::getUserPresetsDirectory (const PresetManagerConfig& presetManagerConfig)
+    juce::File PresetManager::userPresetsDirectoryFor (const juce::String& manufacturer,
+                                                        const juce::String& plugin)
     {
-        if (presetManagerConfig.userPresetsDirectoryOverrideForTests != juce::File())
-            return presetManagerConfig.userPresetsDirectoryOverrideForTests;
-
        #if JUCE_MAC
         return juce::File::getSpecialLocation (juce::File::userHomeDirectory)
             .getChildFile ("Library")
             .getChildFile ("Audio")
             .getChildFile ("Presets")
-            .getChildFile (presetManagerConfig.manufacturerName)
-            .getChildFile (presetManagerConfig.pluginName);
+            .getChildFile (manufacturer)
+            .getChildFile (plugin);
        #elif JUCE_WINDOWS
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-            .getChildFile (presetManagerConfig.manufacturerName)
-            .getChildFile (presetManagerConfig.pluginName)
+            .getChildFile (manufacturer)
+            .getChildFile (plugin)
             .getChildFile ("Presets");
        #else
         // Linux/other: not a CI or release target for this suite (see
         // CLAUDE.md - CI is macOS + Windows only), but still a sane,
         // discoverable per-user location rather than an unsupported path.
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-            .getChildFile (presetManagerConfig.manufacturerName)
-            .getChildFile (presetManagerConfig.pluginName)
+            .getChildFile (manufacturer)
+            .getChildFile (plugin)
             .getChildFile ("Presets");
        #endif
+    }
+
+    juce::File PresetManager::getUserPresetsDirectory (const PresetManagerConfig& presetManagerConfig)
+    {
+        if (presetManagerConfig.userPresetsDirectoryOverrideForTests != juce::File())
+            return presetManagerConfig.userPresetsDirectoryOverrideForTests;
+
+        return userPresetsDirectoryFor (presetManagerConfig.manufacturerName,
+                                        presetManagerConfig.pluginName);
+    }
+
+    juce::File PresetManager::getLegacyUserPresetsDirectory (const PresetManagerConfig& presetManagerConfig)
+    {
+        if (presetManagerConfig.legacyUserPresetsDirectoryOverrideForTests != juce::File())
+            return presetManagerConfig.legacyUserPresetsDirectoryOverrideForTests;
+
+        // A config that redirects the *current* directory into a scratch folder
+        // but says nothing about the legacy one must not fall through to the
+        // real per-user location: a test would then read, and copy from, the
+        // presets of whoever happens to be running it. An overridden current
+        // directory with no legacy override means "there is no legacy
+        // directory", not "use the real one".
+        if (presetManagerConfig.userPresetsDirectoryOverrideForTests != juce::File())
+            return {};
+
+        if (presetManagerConfig.legacyManufacturerName.isEmpty()
+             || presetManagerConfig.legacyManufacturerName == presetManagerConfig.manufacturerName)
+            return {};
+
+        return userPresetsDirectoryFor (presetManagerConfig.legacyManufacturerName,
+                                        presetManagerConfig.pluginName);
+    }
+
+    int PresetManager::migrateLegacyUserPresets()
+    {
+        const auto legacyDirectory = getLegacyUserPresetsDirectory (config);
+
+        // The overwhelmingly common case - a machine that never saw the old
+        // folder - costs exactly this one filesystem check.
+        if (legacyDirectory == juce::File() || ! legacyDirectory.isDirectory())
+            return 0;
+
+        const auto currentDirectory = getUserPresetsDirectory (config);
+
+        if (legacyDirectory == currentDirectory)
+            return 0;
+
+        const auto legacyFiles = legacyDirectory.findChildFiles (
+            juce::File::findFiles, false, juce::String ("*") + presetFileExtension);
+
+        if (legacyFiles.isEmpty())
+            return 0;
+
+        if (! currentDirectory.isDirectory() && ! currentDirectory.createDirectory().wasOk())
+            return 0;
+
+        int copied = 0;
+
+        for (auto& legacyFile : legacyFiles)
+        {
+            const auto destination = currentDirectory.getChildFile (legacyFile.getFileName());
+
+            // Never overwrite: a file already at the new location is either one
+            // the user saved after the rename or one this migration copied and
+            // the user has since edited. Either way it wins over whatever the
+            // legacy folder still holds.
+            if (destination.existsAsFile())
+                continue;
+
+            if (legacyFile.copyFileTo (destination))
+                ++copied;
+        }
+
+        return copied;
     }
 
     //==========================================================================

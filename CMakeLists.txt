@@ -41,13 +41,29 @@ CPMAddPackage(
 # ==============================================================================
 
 juce_add_plugin(Silentium
-    COMPANY_NAME "Yves Vogl"
+    # The trading name, not the legal person. This is the string a host groups
+    # plugins by - Logic's plugin manager, Cubase's vendor column, Reaper's FX
+    # browser - and the suite ships under one brand. Display only: the VST3
+    # class ID derives from PLUGIN_MANUFACTURER_CODE + PLUGIN_CODE alone (JUCE
+    # 8.0.14, juce_VST3ModuleInfo.h, VST3Interface::jucePluginId) and the Audio
+    # Unit identity triple stays (aufx, Silentium's PLUGIN_CODE, Yvsv), so no
+    # existing session is disturbed. See docs/branding.md.
+    COMPANY_NAME "Basilica Audio"
+    # DELIBERATELY NOT RENAMED to com.basilicaaudio.*, and not an oversight.
+    # The bundle ID is how a host recognises this plugin across sessions, and
+    # how every preset file ever written names it ("plugin" field). Changing it
+    # makes every existing project treat this as a different plugin, for no
+    # user-visible benefit - nothing a customer sees flows from it. Recorded in
+    # basilica-audio/.github docs/adr/0001-suite-vendor-identity.md.
     BUNDLE_ID com.yvesvogl.silentium
     PLUGIN_MANUFACTURER_CODE Yvsv
     PLUGIN_CODE Slnt
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Silentium"
     COMPANY_WEBSITE "https://basilica-audio.github.io/website/"
+    # Names the legal person, not the trading name above, and stays that way:
+    # Basilica Audio is how the suite is sold, Yves Vogl is who holds the
+    # copyright. Aligning the two would make this notice less accurate.
     COMPANY_COPYRIGHT "Copyright (c) 2026 Yves Vogl"
     DESCRIPTION "Lookahead noise gate with hysteresis and a sidechain high-pass"
     VST3_CATEGORIES Fx Dynamics
