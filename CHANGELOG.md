@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Plugin metadata now carries the vendor URL, the copyright string, a real description and
+  the VST3 sub-category.** `COMPANY_WEBSITE`, `COMPANY_COPYRIGHT` and `DESCRIPTION` were never
+  set, so a shipped bundle carried an empty `NSHumanReadableCopyright`, an empty VST3 vendor
+  URL, and an AU `description` that was just the plugin name again; `VST3_CATEGORIES` fell back
+  to JUCE's bare `Fx` default, which filed every plugin in the suite under the same
+  undifferentiated heading in a VST3 host's browser. Silentium now declares
+  `Fx Dynamics` (JUCE 8.0.14, `juce_add_plugin`). **Plugin identity is unchanged** — the VST3 class
+  ID is derived from `PLUGIN_MANUFACTURER_CODE` + `PLUGIN_CODE` alone
+  (`juce_VST3ModuleInfo.h`'s `VST3Interface::jucePluginId`) and the AU type/subtype/manufacturer
+  triple is untouched, so existing sessions keep resolving to the same plugin.
+
+### Fixed
+
+- **The README no longer tells users the binaries do not exist.** The Installation section
+  said *"No pre-built binaries are published yet"* while the banner four lines above it linked
+  the Releases page, and the banner in turn described the macOS builds as *"currently
+  unsigned"*. Both claims were false. The Installation section now describes the actual
+  download-and-copy flow, and the banner states what the release workflow actually produces:
+  verified against the shipped `v0.5.0` `.component` with `codesign --verify --strict`
+  (`Developer ID Application: Yves Vogl (M5WT732AY5)`), `spctl -a -t open`
+  (`source=Notarized Developer ID`) and `stapler validate`.
+- **The documented factory-preset count matches what ships** (nine -> ten); `presets/factory/` holds 10.
+
+### Added
+
+- **A `Documentation` section in the README** pointing at the user manual, the factory-preset
+  reference, the changelog and the product page — the manual was only reachable from a
+  sentence in the middle of the Signal flow section.
+
 ## [0.5.0] - 2026-08-20
 
 ### Added

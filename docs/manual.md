@@ -249,7 +249,7 @@ is no special "no sidechain" mode to configure.
 A preset bar sits at the top of the plugin window: `[<] [Name] [>] [Save]
 [Save As...] [Delete] [Import...] [Export...]`, plus a menu (click the
 preset name) listing Factory and User presets and a "Set current as
-default" action. Nine factory presets ship with v0.2.0 - see
+default" action. Ten factory presets ship - see
 [`docs/presets.md`](presets.md) for what each one is for. User presets are
 stored per-user (`~/Library/Audio/Presets/Yves Vogl/Silentium/` on macOS,
 `%APPDATA%/Yves Vogl/Silentium/Presets/` on Windows) and can be exported as

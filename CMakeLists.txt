@@ -47,6 +47,10 @@ juce_add_plugin(Silentium
     PLUGIN_CODE Slnt
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Silentium"
+    COMPANY_WEBSITE "https://basilica-audio.github.io/website/"
+    COMPANY_COPYRIGHT "Copyright (c) 2026 Yves Vogl"
+    DESCRIPTION "Lookahead noise gate with hysteresis and a sidechain high-pass"
+    VST3_CATEGORIES Fx Dynamics
     ICON_BIG "docs/assets/icon.png"
     COPY_PLUGIN_AFTER_BUILD TRUE
     IS_SYNTH FALSE
