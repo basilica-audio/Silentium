@@ -43,7 +43,7 @@ jobs:
     name: Signed macOS release
     needs: create-release
     runs-on: macos-14
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -117,6 +117,106 @@ jobs:
       - name: Delete throwaway keychain
         if: always()
         run: security delete-keychain "$KEYCHAIN" || true
+
+      - name: Download pluginval
+        env:
+          PLUGINVAL_VERSION: v1.0.4
+          PLUGINVAL_MACOS_SHA256: 3c4c533bda0c5059eea3ddaea752d757ee2025041f0f47e6bcb0e87f6082b29f
+        run: |
+          set -euo pipefail
+          curl -sL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/pluginval_macOS.zip"
+          echo "${PLUGINVAL_MACOS_SHA256}  pluginval.zip" | shasum -a 256 -c -
+          unzip -q pluginval.zip -d pluginval
+          chmod +x "pluginval/pluginval.app/Contents/MacOS/pluginval"
+
+      - name: Assert Universal Binary slices (shipped artefacts)
+        run: |
+          set -euo pipefail
+          # Validate the artefacts that actually ship (the signed and stapled
+          # bundles in stage/), not the CI build tree: PR-level CI validates a
+          # different build of the same commit, so the binary users download
+          # left the pipeline unasserted. Mirrors ci.yml's slice assertion.
+          assert_universal() {
+            local bundle="$1" bin archs
+            bin=$(find "$bundle/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
+            archs=$(lipo -archs "$bin")
+            echo "$bin: $archs"
+            for wanted in arm64 x86_64; do
+              if ! grep -qw "$wanted" <<< "$archs"; then
+                echo "::error::$bin is missing the $wanted slice (found: $archs)"
+                exit 1
+              fi
+            done
+          }
+          assert_universal stage/VST3/*.vst3
+          assert_universal stage/AU/*.component
+          assert_universal stage/Standalone/*.app
+
+      - name: Install shipped AU component
+        id: install_au
+        run: |
+          set -euo pipefail
+          # macOS only resolves an AU that is registered with the system:
+          # pluginval scans the component through AudioUnitPluginFormat and
+          # auval resolves by component code, not by reading the bundle off
+          # disk. Install the signed stage/ copy, so what gets validated is
+          # byte-for-byte what ships.
+          COMPONENTS_DIR="$HOME/Library/Audio/Plug-Ins/Components"
+          COMPONENT_PATH=$(echo stage/AU/*.component)
+          COMPONENT_NAME=$(basename "$COMPONENT_PATH")
+          INSTALLED_PATH="${COMPONENTS_DIR:?}/${COMPONENT_NAME:?}"
+          mkdir -p "$COMPONENTS_DIR"
+          rm -rf "$INSTALLED_PATH"
+          cp -R "$COMPONENT_PATH" "$COMPONENTS_DIR/"
+          killall -9 AudioComponentRegistrar || true
+          echo "installed_component_path=$INSTALLED_PATH" >> "$GITHUB_OUTPUT"
+          echo "Installed AU component at: $INSTALLED_PATH"
+
+      - name: Run pluginval on shipped artefacts
+        timeout-minutes: 20
+        env:
+          COMPONENT_PATH: ${{ steps.install_au.outputs.installed_component_path }}
+        run: |
+          set -euo pipefail
+          PLUGINVAL="pluginval/pluginval.app/Contents/MacOS/pluginval"
+          VST3_PATH=$(echo stage/VST3/*.vst3)
+          mkdir -p pluginval-logs
+
+          validate() {
+            local label="$1" target="$2"
+            # Optional third argument: a launcher such as "arch -x86_64". It is
+            # expanded unquoted on purpose so it word-splits into a command.
+            local launcher="${3:-}"
+            local log="pluginval-logs/${label}.log"
+            local rc=0
+
+            echo "::group::pluginval (${label}): ${target}"
+            set +e
+            $launcher "$PLUGINVAL" --strictness-level 10 --validate "$target" 2>&1 | tee "$log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            echo "::endgroup::"
+
+            .github/scripts/assert-pluginval-passed.sh "$log" "$rc" "$label"
+          }
+
+          validate release-vst3-arm64 "$VST3_PATH"
+          validate release-au-arm64 "$COMPONENT_PATH"
+          # pluginval loads only the slice that matches its own host process,
+          # so the native runs above exercised nothing but arm64. Repeat the
+          # sweep under Rosetta 2 so the x86_64 half of the shipped Universal
+          # Binary is exercised too. See basilica-audio/Crypta#108.
+          validate release-vst3-x86_64 "$VST3_PATH" "arch -x86_64"
+          validate release-au-x86_64 "$COMPONENT_PATH" "arch -x86_64"
+
+      - name: auval validation (shipped AU)
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          auval -strict -v aufx Slnt Yvsv
+          # auval validates only its own architecture; Rosetta 2 puts the
+          # x86_64 slice through the same strict pass.
+          arch -x86_64 auval -strict -v aufx Slnt Yvsv
 
       - name: Attach to release
         run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber -R "$GITHUB_REPOSITORY"
