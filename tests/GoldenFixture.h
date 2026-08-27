@@ -497,7 +497,7 @@ namespace GoldenFixture
             basilica::presets::PresetManagerConfig config;
             config.pluginId = "com.yvesvogl.silentium";
             config.pluginName = "Silentium";
-            config.manufacturerName = "Yves Vogl";
+            config.manufacturerName = "Basilica Audio";
             config.pluginVersion = "golden";
             config.userPresetsDirectoryOverrideForTests = userDirectory;
             return config;

@@ -251,8 +251,8 @@ A preset bar sits at the top of the plugin window: `[<] [Name] [>] [Save]
 preset name) listing Factory and User presets and a "Set current as
 default" action. Ten factory presets ship - see
 [`docs/presets.md`](presets.md) for what each one is for. User presets are
-stored per-user (`~/Library/Audio/Presets/Yves Vogl/Silentium/` on macOS,
-`%APPDATA%/Yves Vogl/Silentium/Presets/` on Windows) and can be exported as
+stored per-user (`~/Library/Audio/Presets/Basilica Audio/Silentium/` on macOS,
+`%APPDATA%/Basilica Audio/Silentium/Presets/` on Windows) and can be exported as
 single `.basilicapreset` files or imported (single files or `.zip` banks)
 via the Import/Export buttons.
 

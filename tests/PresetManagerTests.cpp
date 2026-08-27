@@ -72,7 +72,7 @@ namespace
         PresetManagerConfig config;
         config.pluginId = "com.yvesvogl.silentium";
         config.pluginName = "Silentium";
-        config.manufacturerName = "Yves Vogl";
+        config.manufacturerName = "Basilica Audio";
         config.pluginVersion = "0.2.0-test";
         config.userPresetsDirectoryOverrideForTests = userDir;
         return config;
@@ -720,4 +720,174 @@ TEST_CASE ("The v0.4.0 factory presets carry the values they are documented with
             CHECK (loader.load (entry));
         }
     }
+}
+
+//==============================================================================
+// Vendor identity (basilica-audio/.github#2, ADR 0001): user presets moved from
+// the `Yves Vogl` manufacturer folder to `Basilica Audio`, and a user must not
+// lose a preset over it. These cases pin the migration's whole contract - it
+// adopts, it copies rather than moves, it never overwrites, it stays out of the
+// real per-user folder during tests, and both folder shapes match the platform
+// convention (asserted on whichever platform is running, so macOS and Windows
+// CI each check their own).
+namespace
+{
+    // Writes a preset document straight to disk rather than going through
+    // PresetManager::saveUserPreset(), so the migration is exercised against a
+    // file shaped like one an older build left behind - not one this build
+    // happened to produce a moment earlier.
+    void writeBrandingLegacyPresetFile (const juce::File& directory,
+                                const juce::String& presetName,
+                                const juce::String& category,
+                                const juce::String& pluginId)
+    {
+        directory.createDirectory();
+
+        auto* preset = new juce::DynamicObject();
+        preset->setProperty ("format", PresetManager::presetFormatTag);
+        preset->setProperty ("plugin", pluginId);
+        preset->setProperty ("pluginVersion", "0.1.0-legacy");
+        preset->setProperty ("name", presetName);
+        preset->setProperty ("category", category);
+        preset->setProperty ("parameters", juce::var (new juce::DynamicObject()));
+
+        const auto written = directory
+            .getChildFile (juce::File::createLegalFileName (presetName)
+                            + PresetManager::presetFileExtension)
+            .replaceWithText (juce::JSON::toString (juce::var (preset), false));
+
+        REQUIRE (written);
+    }
+
+    bool brandingContainsUserPreset (const std::vector<PresetManager::PresetEntry>& entries,
+                             const juce::String& name)
+    {
+        return std::any_of (entries.begin(), entries.end(),
+                            [&name] (const PresetManager::PresetEntry& entry)
+                            { return entry.name == name && ! entry.isFactory; });
+    }
+
+    juce::String brandingCategoryOf (const std::vector<PresetManager::PresetEntry>& entries,
+                             const juce::String& name)
+    {
+        for (auto& entry : entries)
+            if (entry.name == name)
+                return entry.category;
+
+        return {};
+    }
+}
+
+TEST_CASE ("PresetManager: a preset saved under the legacy manufacturer folder still loads", "[presets][branding]")
+{
+    SilentiumAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    ScopedTestDirectory legacyDirectory;
+    ScopedTestDirectory currentDirectory;
+
+    auto config = makeIsolatedConfig (currentDirectory.dir);
+    config.legacyManufacturerName = "Yves Vogl";
+    config.legacyUserPresetsDirectoryOverrideForTests = legacyDirectory.dir;
+
+    writeBrandingLegacyPresetFile (legacyDirectory.dir, "Legacy Preset", "User", config.pluginId);
+
+    PresetManager manager (processor.apvts, config, makeTestFactoryPresetAssets());
+
+    REQUIRE (brandingContainsUserPreset (manager.getAllPresets(), "Legacy Preset"));
+    REQUIRE (manager.loadPreset ("Legacy Preset"));
+    REQUIRE (manager.getCurrentPresetName() == juce::String ("Legacy Preset"));
+    REQUIRE_FALSE (manager.isCurrentPresetFactory());
+
+    const auto fileName = juce::String ("Legacy Preset") + PresetManager::presetFileExtension;
+
+    // Copied, not moved: an older build of this plugin - or a downgrade - still
+    // finds its own presets exactly where it left them.
+    REQUIRE (legacyDirectory.dir.getChildFile (fileName).existsAsFile());
+    REQUIRE (currentDirectory.dir.getChildFile (fileName).existsAsFile());
+}
+
+TEST_CASE ("PresetManager: the legacy migration never overwrites a preset already in the new folder", "[presets][branding]")
+{
+    SilentiumAudioProcessor processor;
+    processor.prepareToPlay (48000.0, 512);
+
+    ScopedTestDirectory legacyDirectory;
+    ScopedTestDirectory currentDirectory;
+
+    auto config = makeIsolatedConfig (currentDirectory.dir);
+    config.legacyManufacturerName = "Yves Vogl";
+    config.legacyUserPresetsDirectoryOverrideForTests = legacyDirectory.dir;
+
+    writeBrandingLegacyPresetFile (legacyDirectory.dir, "Shared Name", "From Legacy", config.pluginId);
+    writeBrandingLegacyPresetFile (currentDirectory.dir, "Shared Name", "From Current", config.pluginId);
+
+    PresetManager manager (processor.apvts, config, makeTestFactoryPresetAssets());
+
+    REQUIRE (brandingCategoryOf (manager.getAllPresets(), "Shared Name") == juce::String ("From Current"));
+
+    // Idempotent: constructing a second manager over the same pair of folders
+    // must not suddenly prefer the legacy copy either.
+    PresetManager second (processor.apvts, config, makeTestFactoryPresetAssets());
+    REQUIRE (brandingCategoryOf (second.getAllPresets(), "Shared Name") == juce::String ("From Current"));
+}
+
+TEST_CASE ("PresetManager: overriding only the current preset directory disables the legacy lookup", "[presets][branding]")
+{
+    ScopedTestDirectory currentDirectory;
+
+    auto config = makeIsolatedConfig (currentDirectory.dir);
+    config.legacyManufacturerName = "Yves Vogl";
+
+    // Without this, a test that redirects only the current directory would read
+    // - and copy from - the real presets of whoever is running the suite.
+    REQUIRE (PresetManager::getLegacyUserPresetsDirectory (config) == juce::File());
+}
+
+TEST_CASE ("PresetManager: current and legacy preset folders follow the platform convention", "[presets][branding]")
+{
+    PresetManagerConfig config;
+    config.pluginName = "Silentium";
+    config.manufacturerName = "Basilica Audio";
+    config.legacyManufacturerName = "Yves Vogl";
+
+    const auto current = PresetManager::getUserPresetsDirectory (config);
+    const auto legacy = PresetManager::getLegacyUserPresetsDirectory (config);
+
+   #if JUCE_MAC
+    const auto presetsRoot = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                                 .getChildFile ("Library")
+                                 .getChildFile ("Audio")
+                                 .getChildFile ("Presets");
+
+    REQUIRE (current == presetsRoot.getChildFile ("Basilica Audio").getChildFile ("Silentium"));
+    REQUIRE (legacy == presetsRoot.getChildFile ("Yves Vogl").getChildFile ("Silentium"));
+   #else
+    const auto applicationData = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+
+    REQUIRE (current == applicationData.getChildFile ("Basilica Audio")
+                            .getChildFile ("Silentium").getChildFile ("Presets"));
+    REQUIRE (legacy == applicationData.getChildFile ("Yves Vogl")
+                            .getChildFile ("Silentium").getChildFile ("Presets"));
+   #endif
+
+    // The two are the same path shape and differ only in the manufacturer
+    // component - which is what makes "copy from legacy to current" a rename of
+    // one folder rather than a move between two unrelated layouts.
+    REQUIRE (current != legacy);
+    REQUIRE (current.getFileName() == legacy.getFileName());
+}
+
+TEST_CASE ("PresetManager: an empty legacy manufacturer name disables the migration", "[presets][branding]")
+{
+    PresetManagerConfig config;
+    config.pluginName = "Silentium";
+    config.manufacturerName = "Basilica Audio";
+
+    REQUIRE (PresetManager::getLegacyUserPresetsDirectory (config) == juce::File());
+
+    // And so does a legacy name that has already caught up with the current one,
+    // so re-running a completed rename is a no-op rather than a self-copy.
+    config.legacyManufacturerName = "Basilica Audio";
+    REQUIRE (PresetManager::getLegacyUserPresetsDirectory (config) == juce::File());
 }

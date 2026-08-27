@@ -45,8 +45,17 @@ namespace basilica::presets
         // Windows.
         juce::String pluginName;
 
-        // The suite's shared manufacturer folder name, e.g. "Yves Vogl".
+        // The suite's shared manufacturer folder name: "Basilica Audio" for
+        // every plugin in the suite.
         juce::String manufacturerName;
+
+        // The manufacturer folder this suite used before it adopted its
+        // trading name - "Yves Vogl". Non-empty turns on a one-time,
+        // copy-only adoption of any presets still sitting there, run once
+        // from PresetManager's constructor; empty disables the migration
+        // entirely. See basilica-audio/.github docs/adr/0001 and
+        // docs/branding.md.
+        juce::String legacyManufacturerName;
 
         // Stamped into newly saved/exported presets' "pluginVersion" field.
         // Purely informational - never checked on import (only "plugin"
@@ -60,6 +69,13 @@ namespace basilica::presets
         // leaves this default-constructed (empty), so production instances
         // always use the real per-user preset location.
         juce::File userPresetsDirectoryOverrideForTests;
+
+        // Test-only counterpart to the above for the legacy location. Note the
+        // deliberate asymmetry documented on getLegacyUserPresetsDirectory():
+        // overriding the current directory without also overriding this one
+        // *disables* the migration rather than letting a test read (and copy
+        // from) the real presets of whoever is running it.
+        juce::File legacyUserPresetsDirectoryOverrideForTests;
     };
 
     // Owns preset discovery (factory presets, embedded via BinaryData at
@@ -203,6 +219,14 @@ namespace basilica::presets
 
         static juce::File getUserPresetsDirectory (const PresetManagerConfig& presetManagerConfig);
 
+        // The pre-rename location the constructor adopts presets from, or a
+        // default-constructed juce::File when there is nothing to adopt: no
+        // legacyManufacturerName, both names equal, or a test that overrode
+        // the current directory without naming a legacy one (see the
+        // implementation for why that last case must not fall through to the
+        // real per-user folder).
+        static juce::File getLegacyUserPresetsDirectory (const PresetManagerConfig& presetManagerConfig);
+
         static constexpr const char* presetFileExtension = ".basilicapreset";
         static constexpr const char* presetFormatTag = "basilica-preset-1";
 
@@ -215,6 +239,22 @@ namespace basilica::presets
         juce::var buildPresetVar (const juce::String& name, const juce::String& category) const;
         bool writePresetVarToFile (const juce::var& presetVar, const juce::File& destination) const;
         juce::File userPresetFileFor (const juce::String& name) const;
+
+        // The platform-standard per-user preset folder for one manufacturer
+        // name. Shared by getUserPresetsDirectory() and
+        // getLegacyUserPresetsDirectory() so the two can only ever differ in
+        // the manufacturer component, never in the path shape around it.
+        static juce::File userPresetsDirectoryFor (const juce::String& manufacturer,
+                                                    const juce::String& plugin);
+
+        // Copies every preset file in getLegacyUserPresetsDirectory() into
+        // getUserPresetsDirectory(), skipping any name already present there,
+        // and returns how many files were copied. Copies rather than moves, so
+        // an older build of this plugin still finds its presets where it left
+        // them and a downgrade stays survivable. Idempotent; costs a single
+        // isDirectory() call on a machine that never had the legacy folder.
+        // Message-thread-only, called once from the constructor.
+        int migrateLegacyUserPresets();
 
         // Returns a void var if `jsonText` doesn't parse as a well-formed,
         // format/plugin-matching basilica-preset-1 object; errorMessage is
