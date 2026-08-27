@@ -462,6 +462,16 @@ TEST_CASE ("Hysteresis: the open/close gap equals the Hysteresis setting", "[dsp
         INFO ("hysteresis " << hysteresisDb << " dB: opened at " << openLevelDb
                 << " dBFS, closed at " << closeLevelDb << " dBFS");
 
+        // Derived bound: the dominant error is the peak detector's release
+        // droop across one rectified-sine half-period at the close crossing.
+        // juce::dsp::BallisticsFilter decays by exp (-2*pi*dt/tau) (JUCE
+        // 8.0.14, juce_BallisticsFilter.cpp: expFactor = -2*pi*1000/fs), so
+        // with tau = detectorReleaseMs = 15 ms and dt = 1 / (2 * 2000 Hz)
+        // = 0.25 ms the droop is 20*log10(e) * 2*pi * 0.25 / 15 = 0.91 dB.
+        // The open crossing fires at the ripple's top, the close crossing at
+        // its bottom, so the measured gap can mis-read by up to that droop
+        // (ramp motion per half-cycle, 2.5e-3 dB, and attack lag, 3e-3 dB,
+        // are negligible beside it).
         CHECK (openLevelDb - closeLevelDb == Catch::Approx (hysteresisDb).margin (1.0));
     }
 }
