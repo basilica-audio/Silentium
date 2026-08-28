@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A factory-preset headroom gate** (`tests/PresetHeadroomTests.cpp`). Every shipped factory
+  preset is rendered through the real `AudioProcessor` at 48 kHz against the suite reference
+  programme — four plucked notes spanning E1 41.203 Hz to A5 880.000 Hz, twelve harmonics each,
+  peak-normalised to **−12 dBFS**, the level a track is conventionally recorded at and therefore
+  the level a preset's author must be assumed to have voiced for — and its output peak asserted
+  **below 0 dBFS**. A preset added later that clips this reference fails here.
+
+  The case asserts how many factory presets it exercised (10), so a preset library that
+  stopped loading is distinguishable from every preset passing, and it measures **both** ways a
+  user arrives at a preset: a restored session (state first, then `prepareToPlay()`, so every
+  smoothed stage is primed at the preset's own values) and a mid-session click in the preset
+  browser (parameters jump while the DSP is still primed for the old ones). Those are not the
+  same measurement — in `basilica-audio/Aureate` the difference was a 17.6 dB blast the
+  session-load path could not see at all. The recall path is held to "below full scale **or**
+  below where you already were", so a transition is blamed only for clipping it *introduced*.
+
+  **Nothing needed fixing.** All 10 presets already pass on both paths, at −8.20 to
+  −12.79 dBFS on session load (worst *Listen Check* at −8.20 dBFS) and no worse
+  than −8.20 dBFS on recall; the departure state renders at −12.00 dBFS. No
+  preset is raised toward the line either — the gate is a ceiling, not a level-matching target,
+  and relative loudness between presets stays a taste question.
+
+  **What this gate can and cannot catch in a noise gate.** Silentium has no output-gain
+  parameter at all — `range`, `duck` and the ratio/threshold controls can only ever attenuate —
+  so no gain-staging choice a preset makes can push it past full scale, and eight of the ten
+  presets render the reference at exactly −12.000 dBFS because the programme sits above their
+  thresholds and the gate is simply open. That does not make the gate pointless, it changes
+  what it is for: the one preset with any gain of its own is `Listen Check`, whose
+  sidechain-listen path renders **3.8 dB louder than its input** (−8.20 dBFS), and the gate is
+  what stops that path — or a future preset that uses it — from growing past full scale
+  unnoticed. It is a correctness gate here rather than a gain-staging one.
+
 ### Changed
 
 - **The suite now presents itself as Basilica Audio in every host.** `COMPANY_NAME` moves from
