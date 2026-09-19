@@ -17,19 +17,24 @@ Silentium is a tight, lookahead noise gate built on JUCE 8, aimed at killing amp
 ## Features
 
 - **Threshold** - open threshold on the (sidechain-filtered) envelope, -80 dB to 0 dB (default -40 dB)
-- **Hysteresis** - the gate's close threshold sits a fixed 3 dB below Threshold, so it can never chatter on a signal hovering near one value
-- **Attack** - program-dependent ramp time from the Range floor up to unity once the envelope opens the gate, 0 - 50 ms (default 1 ms; floor lowered from 0.1 ms in v0.2.0)
-- **Hold** - minimum time the gate stays open once opened, retriggered continuously while the envelope stays above the close threshold, 0 - 250 ms (default 20 ms; ceiling lowered from 500 ms in v0.2.0)
+- **Hysteresis** - the gap between the open and close thresholds, 0 - 12 dB (default 3 dB); 0 dB deliberately allows the two to coincide for the tightest possible close on very clean material, wider values prevent chatter on a signal hovering near Threshold
+- **Detector** - Peak (default) or RMS envelope follower driving the gate; RMS is a fixed 5 ms mean-square window
+- **Attack** - program-dependent ramp time from the Range floor up to unity once the envelope opens the gate, 0 - 50 ms (default 1 ms)
+- **Hold** - minimum time the gate stays open once opened, retriggered continuously while the envelope stays above the close threshold, 0 - 250 ms (default 20 ms)
 - **Release** - program-dependent ramp time back down to the Range floor once Hold has elapsed, 5 - 500 ms (default 80 ms)
+- **Release Shape** - Exponential (default, program-dependent) or Linear (constant dB/s) release curve
 - **Range** - floor attenuation applied while closed, -80 dB to 0 dB (default -60 dB); 0 dB means the gate never attenuates at all
+- **Ratio** - downward-expander law between Threshold and Range, 1:1 through 20:1, defaulting to the top of the range, which displays as "∞ : 1 (Gate)" - the classic hard-gate behaviour; lower settings turn Silentium into a gentler expander
 - **Lookahead** - delays the main signal 0 - 20 ms (default 5 ms) so the gate can start opening just before a transient arrives; reported to the host as this plugin's total latency
+- **Smooth Open** - a continuous opening ramp inside the lookahead window instead of a hard trigger, off by default; adds no extra latency
 - **SC HPF** - sidechain-only high-pass, 20 - 500 Hz (default 80 Hz), keeps hum/rumble from falsely holding the gate open; never applied to the main signal
-- **SC LPF** *(v0.2.0)* - sidechain-only low-pass in series after SC HPF, 1000 - 16000 Hz (default 16000 Hz/off), narrows the detection band toward the guitar pick-attack transient region
+- **SC LPF** - sidechain-only low-pass in series after SC HPF, 1000 - 16000 Hz (default 16000 Hz/off), narrows the detection band toward the guitar pick-attack transient region
+- **SC Slope** - order of both sidechain filters (SC HPF and SC LPF), 12 dB/oct (default) or 24 dB/oct
 - **Knee** - soft-knee width around Threshold, 0 - 24 dB (default 0 dB); 0 dB is the classic hard-knee snap, wider values blend the gain smoothly across the band
 - **Duck** - inverts the gain computer into a ducker (attenuate above Threshold instead of opening above it), off by default
 - **Listen** - routes the sidechain-filtered detection signal to the output for auditioning what the gate hears, off by default
 - **External sidechain input** - an optional second input bus (disabled by default) lets the detection path be keyed from another track instead of the main input
-- **Presets** *(v0.2.0)* - ten factory presets plus full user preset save/load/import/export, with a German-localised preset bar frame (falls back to English)
+- **Presets** - ten factory presets plus full user preset save/load/import/export, with a German-localised preset bar frame (falls back to English)
 - Full state save/recall via `AudioProcessorValueTreeState`, tolerant of older (v0.1.0) sessions
 
 ## Signal flow
