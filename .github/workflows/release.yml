@@ -222,10 +222,16 @@ jobs:
           # x86_64 slice through the same strict pass.
           arch -x86_64 auval -strict -v aufx Slnt Yvsv
 
+      # basilica-audio/.github#5: checksum-and-upload computes and uploads
+      # a `.sha256` alongside the archive, so a downloader can verify the
+      # macOS zip byte for byte the same way the Windows job's zip already
+      # could.
       - name: Attach to release
-        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber -R "$GITHUB_REPOSITORY"
-        env:
-          GH_TOKEN: ${{ github.token }}
+        uses: basilica-audio/.github/checksum-and-upload@main
+        with:
+          tag: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          assets: ${{ env.ASSET }}
 
   release-windows:
     name: Windows release (unsigned)
@@ -257,9 +263,16 @@ jobs:
           cp "$ROOT/Standalone/"*.exe stage/Standalone/
           SLUG=$(basename "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
           cd stage && 7z a "../$SLUG-$GITHUB_REF_NAME-windows.zip" . && cd ..
-          gh release upload "$GITHUB_REF_NAME" "$SLUG-$GITHUB_REF_NAME-windows.zip" --clobber -R "$GITHUB_REPOSITORY"
-        env:
-          GH_TOKEN: ${{ github.token }}
+          echo "ASSET=$SLUG-$GITHUB_REF_NAME-windows.zip" >> "$GITHUB_ENV"
+
+      # basilica-audio/.github#5: same checksum-and-upload pairing as the
+      # macOS job's "Attach to release" step - see the comment there.
+      - name: Attach to release
+        uses: basilica-audio/.github/checksum-and-upload@main
+        with:
+          tag: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          assets: ${{ env.ASSET }}
 
   publish-release-notes:
     name: Publish release notes
